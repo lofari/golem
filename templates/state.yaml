@@ -1,0 +1,24 @@
+# Project identity — written once during init/planning
+project:
+  name: ""
+  summary: ""
+  stack: ""
+  docs_path: "docs/"
+
+# Current session focus — updated every iteration
+status:
+  current_focus: ""
+  phase: planning
+  last_session: ""
+
+# Architectural decisions — append only, never delete
+decisions: []
+
+# Completed modules — agent must not modify these paths
+locked: []
+
+# Work items — agent picks from these, updates status
+tasks: []
+
+# Lessons learned — things that went wrong, gotchas discovered
+pitfalls: []
