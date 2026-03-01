@@ -2,23 +2,24 @@
 package runner
 
 import (
+	"context"
 	"fmt"
-	"io"
 	"os"
-	"os/exec"
 	"strings"
 	"time"
 
-	"github.com/lofari/golem/internal/ctx"
+	golemctx "github.com/lofari/golem/internal/ctx"
 )
 
 type BuilderConfig struct {
 	Dir           string
 	MaxIterations int
 	MaxTurns      int
+	Model         string
 	TaskOverride  string
 	DryRun        bool
 	Verbose       bool
+	Runner        CommandRunner
 }
 
 type BuilderResult struct {
@@ -31,11 +32,11 @@ type BuilderResult struct {
 
 const completePromise = "<promise>COMPLETE</promise>"
 
-func RunBuilderLoop(cfg BuilderConfig) (BuilderResult, error) {
+func RunBuilderLoop(ctx context.Context, cfg BuilderConfig) (BuilderResult, error) {
 	startTime := time.Now()
 	var result BuilderResult
 
-	state, err := ctx.ReadState(cfg.Dir)
+	state, err := golemctx.ReadState(cfg.Dir)
 	if err != nil {
 		return result, fmt.Errorf("reading initial state: %w", err)
 	}
@@ -48,9 +49,18 @@ func RunBuilderLoop(cfg BuilderConfig) (BuilderResult, error) {
 	fmt.Fprintf(os.Stderr, "golem: starting builder loop (max %d iterations)\n", cfg.MaxIterations)
 	fmt.Fprintf(os.Stderr, "golem: %d tasks remaining\n\n", remaining)
 
+Loop:
 	for i := 1; i <= cfg.MaxIterations; i++ {
+		select {
+		case <-ctx.Done():
+			result.Halted = true
+			result.HaltReason = "interrupted by signal"
+			break Loop
+		default:
+		}
+
 		// Re-read state at start of each iteration
-		state, err = ctx.ReadState(cfg.Dir)
+		state, err = golemctx.ReadState(cfg.Dir)
 		if err != nil {
 			result.Halted = true
 			result.HaltReason = fmt.Sprintf("reading state before iteration %d: %v", i, err)
@@ -89,7 +99,7 @@ func RunBuilderLoop(cfg BuilderConfig) (BuilderResult, error) {
 		stateBefore := state
 
 		// Spawn claude
-		output, err := spawnClaude(cfg.Dir, prompt, cfg.MaxTurns)
+		output, err := cfg.Runner.Run(ctx, cfg.Dir, prompt, cfg.MaxTurns, cfg.Model)
 		iterDuration := time.Since(iterStart)
 
 		if err != nil {
@@ -107,7 +117,7 @@ func RunBuilderLoop(cfg BuilderConfig) (BuilderResult, error) {
 		}
 
 		// Post-iteration: re-read state and validate
-		stateAfter, readErr := ctx.ReadState(cfg.Dir)
+		stateAfter, readErr := golemctx.ReadState(cfg.Dir)
 		if readErr != nil {
 			result.Halted = true
 			result.HaltReason = fmt.Sprintf("state.yaml unreadable after iteration %d: %v", i, readErr)
@@ -115,7 +125,7 @@ func RunBuilderLoop(cfg BuilderConfig) (BuilderResult, error) {
 			break
 		}
 
-		log, _ := ctx.ReadLog(cfg.Dir)
+		log, _ := golemctx.ReadLog(cfg.Dir)
 
 		validation := ValidatePostIteration(cfg.Dir, stateBefore, stateAfter, log)
 		for _, w := range validation.Warnings {
@@ -147,7 +157,7 @@ func RunBuilderLoop(cfg BuilderConfig) (BuilderResult, error) {
 	result.Duration = time.Since(startTime)
 
 	// Final summary
-	state, _ = ctx.ReadState(cfg.Dir)
+	state, _ = golemctx.ReadState(cfg.Dir)
 	remaining = state.RemainingTasks()
 	if result.Completed {
 		fmt.Fprintf(os.Stderr, "\ngolem: all tasks done! (%d iterations, %s)\n", result.Iterations, formatDuration(result.Duration))
@@ -158,25 +168,7 @@ func RunBuilderLoop(cfg BuilderConfig) (BuilderResult, error) {
 	return result, nil
 }
 
-func spawnClaude(dir string, prompt string, maxTurns int) (string, error) {
-	args := []string{"-p", prompt, "--max-turns", fmt.Sprintf("%d", maxTurns)}
-
-	cmd := exec.Command("claude", args...)
-	cmd.Dir = dir
-	cmd.Stderr = os.Stderr
-
-	// Stream stdout live while also capturing it
-	var outputBuf strings.Builder
-	cmd.Stdout = io.MultiWriter(os.Stdout, &outputBuf)
-
-	if err := cmd.Run(); err != nil {
-		return outputBuf.String(), fmt.Errorf("claude exited with error: %w", err)
-	}
-
-	return outputBuf.String(), nil
-}
-
-func lastLogSession(l ctx.Log) *ctx.Session {
+func lastLogSession(l golemctx.Log) *golemctx.Session {
 	if len(l.Sessions) == 0 {
 		return nil
 	}

@@ -2,12 +2,13 @@
 package runner
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"strings"
 	"time"
 
-	"github.com/lofari/golem/internal/ctx"
+	golemctx "github.com/lofari/golem/internal/ctx"
 )
 
 type ReviewResult struct {
@@ -23,12 +24,12 @@ const (
 	needsWorkPromise = "<promise>NEEDS_WORK</promise>"
 )
 
-func RunReview(dir string, maxTurns int) (ReviewResult, error) {
+func RunReview(ctx context.Context, dir string, maxTurns int, model string, runner CommandRunner) (ReviewResult, error) {
 	var result ReviewResult
 	startTime := time.Now()
 
 	// Count existing review tasks
-	state, err := ctx.ReadState(dir)
+	state, err := golemctx.ReadState(dir)
 	if err != nil {
 		return result, fmt.Errorf("reading state: %w", err)
 	}
@@ -44,7 +45,7 @@ func RunReview(dir string, maxTurns int) (ReviewResult, error) {
 
 	fmt.Fprintf(os.Stderr, "golem: starting review...\n")
 
-	output, err := spawnClaude(dir, prompt, maxTurns)
+	output, err := runner.Run(ctx, dir, prompt, maxTurns, model)
 	result.Duration = time.Since(startTime)
 
 	if err != nil {
@@ -56,7 +57,7 @@ func RunReview(dir string, maxTurns int) (ReviewResult, error) {
 	result.NeedsWork = strings.Contains(output, needsWorkPromise)
 
 	// Count new review tasks
-	stateAfter, err := ctx.ReadState(dir)
+	stateAfter, err := golemctx.ReadState(dir)
 	if err != nil {
 		return result, fmt.Errorf("reading state after review: %w", err)
 	}
@@ -100,7 +101,7 @@ func RunReview(dir string, maxTurns int) (ReviewResult, error) {
 	return result, nil
 }
 
-func countReviewTasks(state ctx.State) int {
+func countReviewTasks(state golemctx.State) int {
 	count := 0
 	for _, t := range state.Tasks {
 		if strings.HasPrefix(t.Name, "[review]") && t.Status != "done" {
