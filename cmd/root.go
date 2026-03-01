@@ -25,4 +25,5 @@ func Execute() {
 
 func init() {
 	rootCmd.Version = version
+	rootCmd.PersistentFlags().String("model", "", "Claude model to use (sonnet, opus, haiku)")
 }

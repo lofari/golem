@@ -23,13 +23,10 @@ var reviewCmd = &cobra.Command{
 		}
 
 		maxTurns, _ := cmd.Flags().GetInt("max-turns")
-		return runReview(dir, maxTurns)
+		model, _ := cmd.Flags().GetString("model")
+		_, err = runner.RunReview(cmd.Context(), dir, maxTurns, model, &runner.ClaudeRunner{})
+		return err
 	},
-}
-
-func runReview(dir string, maxTurns int) error {
-	_, err := runner.RunReview(dir, maxTurns)
-	return err
 }
 
 func init() {

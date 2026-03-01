@@ -27,7 +27,14 @@ var planCmd = &cobra.Command{
 		fmt.Fprintln(os.Stderr, "golem: exit the session when planning is complete")
 		fmt.Fprintln(os.Stderr)
 
-		claude := exec.Command("claude")
+		model, _ := cmd.Flags().GetString("model")
+
+		claudeArgs := []string{}
+		if model != "" {
+			claudeArgs = append(claudeArgs, "--model", model)
+		}
+
+		claude := exec.Command("claude", claudeArgs...)
 		claude.Dir = dir
 		claude.Stdin = os.Stdin
 		claude.Stdout = os.Stdout
