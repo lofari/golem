@@ -4,6 +4,8 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/spf13/cobra"
 	"github.com/lofari/golem/internal/runner"
@@ -22,6 +24,9 @@ var runCmd = &cobra.Command{
 			return fmt.Errorf(".ctx/ not found — run `golem init` first")
 		}
 
+		ctx, stop := signal.NotifyContext(cmd.Context(), syscall.SIGINT, syscall.SIGTERM)
+		defer stop()
+
 		maxIter, _ := cmd.Flags().GetInt("max-iterations")
 		maxTurns, _ := cmd.Flags().GetInt("max-turns")
 		task, _ := cmd.Flags().GetString("task")
@@ -30,7 +35,7 @@ var runCmd = &cobra.Command{
 		review, _ := cmd.Flags().GetBool("review")
 		model, _ := cmd.Flags().GetString("model")
 
-		result, err := runner.RunBuilderLoop(cmd.Context(), runner.BuilderConfig{
+		result, err := runner.RunBuilderLoop(ctx, runner.BuilderConfig{
 			Dir:           dir,
 			MaxIterations: maxIter,
 			MaxTurns:      maxTurns,
@@ -51,7 +56,7 @@ var runCmd = &cobra.Command{
 		// Chain review if requested
 		if review {
 			fmt.Fprintln(os.Stderr, "\ngolem: chaining review pass...")
-			_, err := runner.RunReview(cmd.Context(), dir, maxTurns, model, &runner.ClaudeRunner{})
+			_, err := runner.RunReview(ctx, dir, maxTurns, model, &runner.ClaudeRunner{})
 			return err
 		}
 

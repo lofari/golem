@@ -4,6 +4,8 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/spf13/cobra"
 	"github.com/lofari/golem/internal/runner"
@@ -22,9 +24,12 @@ var reviewCmd = &cobra.Command{
 			return fmt.Errorf(".ctx/ not found — run `golem init` first")
 		}
 
+		ctx, stop := signal.NotifyContext(cmd.Context(), syscall.SIGINT, syscall.SIGTERM)
+		defer stop()
+
 		maxTurns, _ := cmd.Flags().GetInt("max-turns")
 		model, _ := cmd.Flags().GetString("model")
-		_, err = runner.RunReview(cmd.Context(), dir, maxTurns, model, &runner.ClaudeRunner{})
+		_, err = runner.RunReview(ctx, dir, maxTurns, model, &runner.ClaudeRunner{})
 		return err
 	},
 }
