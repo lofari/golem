@@ -55,11 +55,6 @@ var runCmd = &cobra.Command{
 	},
 }
 
-// runReview is a placeholder — implemented in cmd/review.go (Task 13).
-func runReview(dir string, maxTurns int) error {
-	return fmt.Errorf("review not yet implemented — run `golem review` separately")
-}
-
 func init() {
 	rootCmd.AddCommand(runCmd)
 	runCmd.Flags().Int("max-iterations", 20, "maximum number of iterations")
