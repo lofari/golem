@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -102,6 +103,9 @@ Loop:
 		output, err := cfg.Runner.Run(ctx, cfg.Dir, prompt, cfg.MaxTurns, cfg.Model)
 		iterDuration := time.Since(iterStart)
 
+		// Save raw session output (even on error — partial output aids debugging)
+		SaveSessionOutput(cfg.Dir, "build", i, output)
+
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "golem: iteration %d failed (%v) — continuing\n", i, err)
 			result.Iterations = i
@@ -183,4 +187,23 @@ func formatDuration(d time.Duration) string {
 	mins := int(d.Minutes())
 	secs := int(d.Seconds()) % 60
 	return fmt.Sprintf("%dm%02ds", mins, secs)
+}
+
+// SaveSessionOutput writes raw session output to .ctx/sessions/<type>-<NNN>.md.
+func SaveSessionOutput(dir string, sessionType string, iteration int, output string) error {
+	sessDir := filepath.Join(dir, ".ctx", "sessions")
+	if err := os.MkdirAll(sessDir, 0755); err != nil {
+		return err
+	}
+	filename := fmt.Sprintf("%s-%03d.md", sessionType, iteration)
+	return os.WriteFile(filepath.Join(sessDir, filename), []byte(output), 0644)
+}
+
+// nextSessionNumber counts existing files matching the prefix in .ctx/sessions/
+// and returns the next number (1-based).
+func nextSessionNumber(dir string, prefix string) int {
+	sessDir := filepath.Join(dir, ".ctx", "sessions")
+	pattern := filepath.Join(sessDir, prefix+"-*.md")
+	matches, _ := filepath.Glob(pattern)
+	return len(matches) + 1
 }

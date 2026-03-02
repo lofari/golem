@@ -35,6 +35,8 @@ var runCmd = &cobra.Command{
 		review, _ := cmd.Flags().GetBool("review")
 		model, _ := cmd.Flags().GetString("model")
 
+		claudeRunner := &runner.ClaudeRunner{Verbose: verbose}
+
 		result, err := runner.RunBuilderLoop(ctx, runner.BuilderConfig{
 			Dir:           dir,
 			MaxIterations: maxIter,
@@ -43,7 +45,7 @@ var runCmd = &cobra.Command{
 			TaskOverride:  task,
 			DryRun:        dryRun,
 			Verbose:       verbose,
-			Runner:        &runner.ClaudeRunner{},
+			Runner:        claudeRunner,
 		})
 		if err != nil {
 			return err
@@ -56,7 +58,7 @@ var runCmd = &cobra.Command{
 		// Chain review if requested
 		if review {
 			fmt.Fprintln(os.Stderr, "\ngolem: chaining review pass...")
-			_, err := runner.RunReview(ctx, dir, maxTurns, model, &runner.ClaudeRunner{})
+			_, err := runner.RunReview(ctx, dir, maxTurns, model, claudeRunner)
 			return err
 		}
 

@@ -48,6 +48,9 @@ func RunReview(ctx context.Context, dir string, maxTurns int, model string, runn
 	output, err := runner.Run(ctx, dir, prompt, maxTurns, model)
 	result.Duration = time.Since(startTime)
 
+	// Save raw session output (even on error — partial output aids debugging)
+	SaveSessionOutput(dir, "review", nextSessionNumber(dir, "review"), output)
+
 	if err != nil {
 		return result, fmt.Errorf("review failed: %w", err)
 	}

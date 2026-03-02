@@ -17,12 +17,17 @@ type CommandRunner interface {
 }
 
 // ClaudeRunner is the production implementation that spawns `claude -p`.
-type ClaudeRunner struct{}
+type ClaudeRunner struct {
+	Verbose bool
+}
 
 func (c *ClaudeRunner) Run(ctx context.Context, dir string, prompt string, maxTurns int, model string) (string, error) {
 	args := []string{"-p", prompt, "--max-turns", fmt.Sprintf("%d", maxTurns)}
 	if model != "" {
 		args = append(args, "--model", model)
+	}
+	if c.Verbose {
+		args = append(args, "--verbose")
 	}
 
 	cmd := exec.CommandContext(ctx, "claude", args...)

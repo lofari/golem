@@ -29,7 +29,8 @@ var reviewCmd = &cobra.Command{
 
 		maxTurns, _ := cmd.Flags().GetInt("max-turns")
 		model, _ := cmd.Flags().GetString("model")
-		_, err = runner.RunReview(ctx, dir, maxTurns, model, &runner.ClaudeRunner{})
+		verbose, _ := cmd.Flags().GetBool("verbose")
+		_, err = runner.RunReview(ctx, dir, maxTurns, model, &runner.ClaudeRunner{Verbose: verbose})
 		return err
 	},
 }
@@ -37,4 +38,5 @@ var reviewCmd = &cobra.Command{
 func init() {
 	rootCmd.AddCommand(reviewCmd)
 	reviewCmd.Flags().Int("max-turns", 50, "max turns for the review session")
+	reviewCmd.Flags().Bool("verbose", false, "show Claude tool calls and thinking (stream-json)")
 }

@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"os/signal"
-	"syscall"
 
 	"github.com/spf13/cobra"
 	"github.com/lofari/golem/internal/scaffold"
@@ -36,18 +34,11 @@ var planCmd = &cobra.Command{
 			claudeArgs = append(claudeArgs, "--model", model)
 		}
 
-		ctx, stop := signal.NotifyContext(cmd.Context(), syscall.SIGINT, syscall.SIGTERM)
-		defer stop()
-
-		claude := exec.CommandContext(ctx, "claude", claudeArgs...)
+		claude := exec.Command("claude", claudeArgs...)
 		claude.Dir = dir
 		claude.Stdin = os.Stdin
 		claude.Stdout = os.Stdout
 		claude.Stderr = os.Stderr
-		claude.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-		claude.Cancel = func() error {
-			return syscall.Kill(-claude.Process.Pid, syscall.SIGINT)
-		}
 
 		return claude.Run()
 	},
