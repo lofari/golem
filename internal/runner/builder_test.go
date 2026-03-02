@@ -107,6 +107,45 @@ func TestBuilderLoop_DryRun(t *testing.T) {
 	_ = result
 }
 
+func TestBuilderLoop_EmitsEvents(t *testing.T) {
+	dir := setupTestProject(t)
+	mock := &mockRunner{outputs: []string{"done <promise>COMPLETE</promise>"}}
+
+	events := make(chan Event, 100)
+	result, err := RunBuilderLoop(context.Background(), BuilderConfig{
+		Dir:           dir,
+		MaxIterations: 5,
+		MaxTurns:      10,
+		Runner:        mock,
+		Events:        events,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !result.Completed {
+		t.Error("expected Completed=true")
+	}
+
+	// Collect all events
+	close(events)
+	var types []EventType
+	for ev := range events {
+		types = append(types, ev.Type)
+	}
+
+	// Should have: IterStart, IterEnd, LoopDone
+	if len(types) < 3 {
+		t.Fatalf("expected at least 3 events, got %d: %v", len(types), types)
+	}
+	if types[0] != EventIterStart {
+		t.Errorf("first event should be EventIterStart, got %d", types[0])
+	}
+	// Last event should be LoopDone
+	if types[len(types)-1] != EventLoopDone {
+		t.Errorf("last event should be EventLoopDone, got %d", types[len(types)-1])
+	}
+}
+
 func TestBuilderLoop_ContextCancellation(t *testing.T) {
 	dir := setupTestProject(t)
 	mock := &mockRunner{outputs: []string{"partial"}}

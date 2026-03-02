@@ -12,6 +12,28 @@ import (
 	golemctx "github.com/lofari/golem/internal/ctx"
 )
 
+// EventType identifies the kind of TUI event.
+type EventType int
+
+const (
+	EventIterStart  EventType = iota // Iteration beginning
+	EventOutputLine                  // A line of claude output
+	EventIterEnd                     // Iteration finished
+	EventLoopDone                    // Loop finished
+)
+
+// Event carries information from the builder loop to the TUI.
+type Event struct {
+	Type    EventType
+	Iter    int            // EventIterStart, EventIterEnd
+	MaxIter int            // EventIterStart
+	Task    string         // EventIterEnd
+	Outcome string         // EventIterEnd
+	Line    string         // EventOutputLine
+	Err     error          // EventIterEnd (if failed), EventLoopDone
+	Result  *BuilderResult // EventLoopDone
+}
+
 type BuilderConfig struct {
 	Dir           string
 	MaxIterations int
@@ -21,6 +43,13 @@ type BuilderConfig struct {
 	DryRun        bool
 	Verbose       bool
 	Runner        CommandRunner
+	Events        chan<- Event
+}
+
+func (cfg *BuilderConfig) emit(ev Event) {
+	if cfg.Events != nil {
+		cfg.Events <- ev
+	}
 }
 
 type BuilderResult struct {
@@ -94,6 +123,7 @@ Loop:
 		}
 
 		fmt.Fprintf(os.Stderr, "golem: iteration %d starting...\n", i)
+		cfg.emit(Event{Type: EventIterStart, Iter: i, MaxIter: cfg.MaxIterations})
 		iterStart := time.Now()
 
 		// Capture state before for regression detection
@@ -108,6 +138,7 @@ Loop:
 
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "golem: iteration %d failed (%v) — continuing\n", i, err)
+			cfg.emit(Event{Type: EventIterEnd, Iter: i, Err: err})
 			result.Iterations = i
 			continue
 		}
@@ -117,6 +148,7 @@ Loop:
 			result.Completed = true
 			result.Iterations = i
 			fmt.Fprintf(os.Stderr, "golem: iteration %d complete (%s) — all tasks done\n", i, formatDuration(iterDuration))
+			cfg.emit(Event{Type: EventIterEnd, Iter: i, Task: "all tasks", Outcome: "complete"})
 			break
 		}
 
@@ -149,6 +181,9 @@ Loop:
 			fmt.Fprintf(os.Stderr, "golem:   task: %q\n", lastSession.Task)
 			fmt.Fprintf(os.Stderr, "golem:   outcome: %s\n", lastSession.Outcome)
 			fmt.Fprintf(os.Stderr, "golem:   files changed: %d\n", len(lastSession.FilesChanged))
+			cfg.emit(Event{Type: EventIterEnd, Iter: i, Task: lastSession.Task, Outcome: lastSession.Outcome})
+		} else {
+			cfg.emit(Event{Type: EventIterEnd, Iter: i})
 		}
 
 		result.Iterations = i
@@ -168,6 +203,8 @@ Loop:
 	} else {
 		fmt.Fprintf(os.Stderr, "\ngolem: stopped after %d iterations (%s), %d tasks remaining\n", result.Iterations, formatDuration(result.Duration), remaining)
 	}
+
+	cfg.emit(Event{Type: EventLoopDone, Result: &result})
 
 	return result, nil
 }
