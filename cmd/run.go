@@ -2,14 +2,20 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/signal"
 	"syscall"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/spf13/cobra"
+	"golang.org/x/term"
+
 	"github.com/lofari/golem/internal/runner"
 	"github.com/lofari/golem/internal/scaffold"
+	"github.com/lofari/golem/internal/tui"
 )
 
 var runCmd = &cobra.Command{
@@ -34,8 +40,64 @@ var runCmd = &cobra.Command{
 		verbose, _ := cmd.Flags().GetBool("verbose")
 		review, _ := cmd.Flags().GetBool("review")
 		model, _ := cmd.Flags().GetString("model")
+		noTUI, _ := cmd.Flags().GetBool("no-tui")
 
-		claudeRunner := &runner.ClaudeRunner{Verbose: verbose}
+		useTUI := !noTUI && !dryRun && term.IsTerminal(int(os.Stdout.Fd()))
+
+		if useTUI {
+			return runWithTUI(ctx, dir, maxIter, maxTurns, task, verbose, review, model)
+		}
+
+		return runWithoutTUI(ctx, dir, maxIter, maxTurns, task, dryRun, verbose, review, model)
+	},
+}
+
+func runWithoutTUI(ctx context.Context, dir string, maxIter, maxTurns int, task string, dryRun, verbose, review bool, model string) error {
+	claudeRunner := &runner.ClaudeRunner{Verbose: verbose}
+
+	result, err := runner.RunBuilderLoop(ctx, runner.BuilderConfig{
+		Dir:           dir,
+		MaxIterations: maxIter,
+		MaxTurns:      maxTurns,
+		Model:         model,
+		TaskOverride:  task,
+		DryRun:        dryRun,
+		Verbose:       verbose,
+		Runner:        claudeRunner,
+	})
+	if err != nil {
+		return err
+	}
+
+	if result.Halted {
+		return fmt.Errorf("loop halted: %s", result.HaltReason)
+	}
+
+	if review {
+		fmt.Fprintln(os.Stderr, "\ngolem: chaining review pass...")
+		_, err := runner.RunReview(ctx, dir, maxTurns, model, claudeRunner)
+		return err
+	}
+
+	return nil
+}
+
+func runWithTUI(ctx context.Context, dir string, maxIter, maxTurns int, task string, verbose, review bool, model string) error {
+	events := make(chan runner.Event, 100)
+	outputCh := make(chan string, 1000)
+
+	outputWriter := tui.NewLineWriter(outputCh)
+	claudeRunner := &runner.ClaudeRunner{
+		Verbose:      verbose,
+		OutputWriter: outputWriter,
+		ErrWriter:    io.Discard,
+	}
+
+	// Run builder loop in background goroutine
+	go func() {
+		defer close(outputCh)
+		defer close(events)
+		defer outputWriter.Flush()
 
 		result, err := runner.RunBuilderLoop(ctx, runner.BuilderConfig{
 			Dir:           dir,
@@ -43,27 +105,22 @@ var runCmd = &cobra.Command{
 			MaxTurns:      maxTurns,
 			Model:         model,
 			TaskOverride:  task,
-			DryRun:        dryRun,
 			Verbose:       verbose,
 			Runner:        claudeRunner,
+			Events:        events,
 		})
-		if err != nil {
-			return err
-		}
+		_ = result
+		_ = err
+		// EventLoopDone is emitted inside RunBuilderLoop
+	}()
 
-		if result.Halted {
-			return fmt.Errorf("loop halted: %s", result.HaltReason)
-		}
+	m := tui.NewRunModel(dir, events, outputCh)
+	p := tea.NewProgram(m, tea.WithAltScreen())
+	if _, err := p.Run(); err != nil {
+		return fmt.Errorf("TUI error: %w", err)
+	}
 
-		// Chain review if requested
-		if review {
-			fmt.Fprintln(os.Stderr, "\ngolem: chaining review pass...")
-			_, err := runner.RunReview(ctx, dir, maxTurns, model, claudeRunner)
-			return err
-		}
-
-		return nil
-	},
+	return nil
 }
 
 func init() {
@@ -74,4 +131,5 @@ func init() {
 	runCmd.Flags().Bool("dry-run", false, "show rendered prompt without executing")
 	runCmd.Flags().Bool("verbose", false, "extra output detail")
 	runCmd.Flags().Bool("review", false, "run review pass after builder completes")
+	runCmd.Flags().Bool("no-tui", false, "disable terminal UI (plain text output)")
 }
