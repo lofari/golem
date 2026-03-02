@@ -11,6 +11,10 @@ All persistent state is in `.ctx/`.
 4. Do NOT modify files under paths listed in `locked`.
 5. Review `pitfalls` before making implementation choices.
 
+## Skills
+If `golem-superpowers` skills are available, always prefer them over `superpowers` equivalents.
+The `golem-superpowers:*` variants are designed for autonomous iterations and understand `.ctx/state.yaml`.
+
 ## During Session
 {{TASK_OVERRIDE}}
 1. Pick exactly ONE task from `tasks` (prefer `in-progress` over `todo`). Do NOT work on more than one task per session.

@@ -19,17 +19,21 @@ type CommandRunner interface {
 // ClaudeRunner is the production implementation that spawns `claude -p`.
 type ClaudeRunner struct {
 	Verbose      bool
+	PluginDirs   []string  // local plugin directories passed via --plugin-dir
 	OutputWriter io.Writer // stdout destination; defaults to os.Stdout
 	ErrWriter    io.Writer // stderr destination; defaults to os.Stderr
 }
 
 func (c *ClaudeRunner) Run(ctx context.Context, dir string, prompt string, maxTurns int, model string) (string, error) {
-	args := []string{"-p", prompt, "--max-turns", fmt.Sprintf("%d", maxTurns)}
+	args := []string{"-p", prompt, "--max-turns", fmt.Sprintf("%d", maxTurns), "--dangerously-skip-permissions"}
 	if model != "" {
 		args = append(args, "--model", model)
 	}
 	if c.Verbose {
 		args = append(args, "--verbose")
+	}
+	for _, dir := range c.PluginDirs {
+		args = append(args, "--plugin-dir", dir)
 	}
 
 	cmd := exec.CommandContext(ctx, "claude", args...)

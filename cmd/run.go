@@ -40,20 +40,21 @@ var runCmd = &cobra.Command{
 		verbose, _ := cmd.Flags().GetBool("verbose")
 		review, _ := cmd.Flags().GetBool("review")
 		model, _ := cmd.Flags().GetString("model")
+		pluginDirs, _ := cmd.Flags().GetStringSlice("plugin-dir")
 		noTUI, _ := cmd.Flags().GetBool("no-tui")
 
 		useTUI := !noTUI && !dryRun && term.IsTerminal(int(os.Stdout.Fd()))
 
 		if useTUI {
-			return runWithTUI(ctx, dir, maxIter, maxTurns, task, verbose, review, model)
+			return runWithTUI(ctx, dir, maxIter, maxTurns, task, verbose, review, model, pluginDirs)
 		}
 
-		return runWithoutTUI(ctx, dir, maxIter, maxTurns, task, dryRun, verbose, review, model)
+		return runWithoutTUI(ctx, dir, maxIter, maxTurns, task, dryRun, verbose, review, model, pluginDirs)
 	},
 }
 
-func runWithoutTUI(ctx context.Context, dir string, maxIter, maxTurns int, task string, dryRun, verbose, review bool, model string) error {
-	claudeRunner := &runner.ClaudeRunner{Verbose: verbose}
+func runWithoutTUI(ctx context.Context, dir string, maxIter, maxTurns int, task string, dryRun, verbose, review bool, model string, pluginDirs []string) error {
+	claudeRunner := &runner.ClaudeRunner{Verbose: verbose, PluginDirs: pluginDirs}
 
 	result, err := runner.RunBuilderLoop(ctx, runner.BuilderConfig{
 		Dir:           dir,
@@ -82,13 +83,14 @@ func runWithoutTUI(ctx context.Context, dir string, maxIter, maxTurns int, task 
 	return nil
 }
 
-func runWithTUI(ctx context.Context, dir string, maxIter, maxTurns int, task string, verbose, review bool, model string) error {
+func runWithTUI(ctx context.Context, dir string, maxIter, maxTurns int, task string, verbose, review bool, model string, pluginDirs []string) error {
 	events := make(chan runner.Event, 100)
 	outputCh := make(chan string, 1000)
 
 	outputWriter := tui.NewLineWriter(outputCh)
 	claudeRunner := &runner.ClaudeRunner{
 		Verbose:      verbose,
+		PluginDirs:   pluginDirs,
 		OutputWriter: outputWriter,
 		ErrWriter:    io.Discard,
 	}

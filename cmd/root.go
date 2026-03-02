@@ -26,4 +26,5 @@ func Execute() {
 func init() {
 	rootCmd.Version = version
 	rootCmd.PersistentFlags().String("model", "", "Claude model to use (sonnet, opus, haiku)")
+	rootCmd.PersistentFlags().StringSlice("plugin-dir", nil, "Local plugin directory to pass to Claude (repeatable)")
 }

@@ -28,10 +28,14 @@ var planCmd = &cobra.Command{
 		fmt.Fprintln(os.Stderr)
 
 		model, _ := cmd.Flags().GetString("model")
+		pluginDirs, _ := cmd.Flags().GetStringSlice("plugin-dir")
 
 		claudeArgs := []string{}
 		if model != "" {
 			claudeArgs = append(claudeArgs, "--model", model)
+		}
+		for _, d := range pluginDirs {
+			claudeArgs = append(claudeArgs, "--plugin-dir", d)
 		}
 
 		claude := exec.Command("claude", claudeArgs...)

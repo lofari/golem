@@ -30,7 +30,8 @@ var reviewCmd = &cobra.Command{
 		maxTurns, _ := cmd.Flags().GetInt("max-turns")
 		model, _ := cmd.Flags().GetString("model")
 		verbose, _ := cmd.Flags().GetBool("verbose")
-		_, err = runner.RunReview(ctx, dir, maxTurns, model, &runner.ClaudeRunner{Verbose: verbose})
+		pluginDirs, _ := cmd.Flags().GetStringSlice("plugin-dir")
+		_, err = runner.RunReview(ctx, dir, maxTurns, model, &runner.ClaudeRunner{Verbose: verbose, PluginDirs: pluginDirs})
 		return err
 	},
 }
