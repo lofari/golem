@@ -18,7 +18,9 @@ type CommandRunner interface {
 
 // ClaudeRunner is the production implementation that spawns `claude -p`.
 type ClaudeRunner struct {
-	Verbose bool
+	Verbose      bool
+	OutputWriter io.Writer // stdout destination; defaults to os.Stdout
+	ErrWriter    io.Writer // stderr destination; defaults to os.Stderr
 }
 
 func (c *ClaudeRunner) Run(ctx context.Context, dir string, prompt string, maxTurns int, model string) (string, error) {
@@ -32,11 +34,21 @@ func (c *ClaudeRunner) Run(ctx context.Context, dir string, prompt string, maxTu
 
 	cmd := exec.CommandContext(ctx, "claude", args...)
 	cmd.Dir = dir
-	cmd.Stderr = os.Stderr
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 
+	stdout := c.OutputWriter
+	if stdout == nil {
+		stdout = os.Stdout
+	}
+	stderr := c.ErrWriter
+	if stderr == nil {
+		stderr = os.Stderr
+	}
+
+	cmd.Stderr = stderr
+
 	var outputBuf strings.Builder
-	cmd.Stdout = io.MultiWriter(os.Stdout, &outputBuf)
+	cmd.Stdout = io.MultiWriter(stdout, &outputBuf)
 
 	if err := cmd.Run(); err != nil {
 		// If killed by context cancellation, return what we have
