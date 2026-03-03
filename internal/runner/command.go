@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"syscall"
 )
@@ -20,6 +21,7 @@ type CommandRunner interface {
 type ClaudeRunner struct {
 	Verbose      bool
 	StreamJSON   bool      // use --output-format stream-json and parse output for TUI
+	Sandbox      bool      // run Claude inside a warden sandbox container
 	PluginDirs   []string  // local plugin directories passed via --plugin-dir
 	OutputWriter io.Writer // display destination; defaults to os.Stdout
 	ErrWriter    io.Writer // stderr destination; defaults to os.Stderr
@@ -40,7 +42,8 @@ func (c *ClaudeRunner) Run(ctx context.Context, dir string, prompt string, maxTu
 		args = append(args, "--plugin-dir", d)
 	}
 
-	cmd := exec.CommandContext(ctx, "claude", args...)
+	cmdName, cmdArgs := c.buildCommand(dir, args)
+	cmd := exec.CommandContext(ctx, cmdName, cmdArgs...)
 	cmd.Dir = dir
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 
@@ -71,6 +74,32 @@ func (c *ClaudeRunner) Run(ctx context.Context, dir string, prompt string, maxTu
 	}
 
 	return outputBuf.String(), nil
+}
+
+func (c *ClaudeRunner) buildCommand(dir string, claudeArgs []string) (string, []string) {
+	if !c.Sandbox {
+		return "claude", claudeArgs
+	}
+
+	homeDir, _ := os.UserHomeDir()
+	wardenArgs := []string{
+		"run",
+		"--network",
+		"--tools", "claude",
+		"--mount", homeDir + "/.claude:ro",
+		"--mount", dir + ":rw",
+	}
+	for _, d := range c.PluginDirs {
+		abs, err := filepath.Abs(d)
+		if err == nil {
+			d = abs
+		}
+		wardenArgs = append(wardenArgs, "--mount", d+":ro")
+	}
+	wardenArgs = append(wardenArgs, "--")
+	wardenArgs = append(wardenArgs, "claude")
+	wardenArgs = append(wardenArgs, claudeArgs...)
+	return "warden", wardenArgs
 }
 
 func (c *ClaudeRunner) runStreamJSON(ctx context.Context, cmd *exec.Cmd, display io.Writer, dir string) (string, error) {

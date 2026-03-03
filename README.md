@@ -59,7 +59,14 @@ golem status
 
 `golem run` and `golem review` pass `--dangerously-skip-permissions` to Claude Code, giving the agent unrestricted tool access. This is necessary because headless mode (`claude -p`) has no TTY to prompt for approval.
 
-Run golem in an isolated environment (Docker container, VM, or disposable worktree) to limit blast radius.
+Use `--sandbox` to run Claude inside a [Warden](https://github.com/anthropics/warden) container, isolating filesystem and network access:
+
+```bash
+golem run --sandbox
+golem review --sandbox
+```
+
+Without `--sandbox`, run golem in an isolated environment (Docker container, VM, or disposable worktree) to limit blast radius.
 
 ## Workflow
 
@@ -133,6 +140,7 @@ golem run --review
 | `--verbose` | `false` | Extra output detail |
 | `--review` | `false` | Chain a review pass after builder completes |
 | `--no-tui` | `false` | Disable terminal UI (plain text output) |
+| `--sandbox` | `false` | Run Claude inside a warden sandbox container |
 
 When a terminal is detected, `golem run` displays a live TUI with a split-pane layout: Claude output on the left, task list and stats on the right. Use `--no-tui` to fall back to plain text.
 
@@ -156,6 +164,7 @@ golem review --model opus
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--max-turns` | `50` | Max turns for the review session |
+| `--sandbox` | `false` | Run Claude inside a warden sandbox container |
 
 The reviewer checks: plan alignment, implementation completeness, test quality, code quality, decision consistency, and pitfall awareness. Issues become `[review]` tasks that the builder picks up on the next `golem run`.
 

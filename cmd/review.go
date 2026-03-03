@@ -31,7 +31,8 @@ var reviewCmd = &cobra.Command{
 		model, _ := cmd.Flags().GetString("model")
 		verbose, _ := cmd.Flags().GetBool("verbose")
 		pluginDirs, _ := cmd.Flags().GetStringSlice("plugin-dir")
-		_, err = runner.RunReview(ctx, dir, maxTurns, model, &runner.ClaudeRunner{Verbose: verbose, PluginDirs: pluginDirs})
+		sandbox, _ := cmd.Flags().GetBool("sandbox")
+		_, err = runner.RunReview(ctx, dir, maxTurns, model, &runner.ClaudeRunner{Verbose: verbose, PluginDirs: pluginDirs, Sandbox: sandbox})
 		return err
 	},
 }
@@ -40,4 +41,5 @@ func init() {
 	rootCmd.AddCommand(reviewCmd)
 	reviewCmd.Flags().Int("max-turns", 50, "max turns for the review session")
 	reviewCmd.Flags().Bool("verbose", false, "show Claude tool calls and thinking (stream-json)")
+	reviewCmd.Flags().Bool("sandbox", false, "run Claude inside a warden sandbox container")
 }
