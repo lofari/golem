@@ -84,10 +84,12 @@ Loop:
 		// Render prompt
 		iterCtx := BuildIterationContext(i, cfg.MaxIterations, remaining)
 		taskOverride := BuildTaskOverride(cfg.TaskOverride)
+		reviewCtx := BuildReviewContext(state.Tasks)
 		prompt, err := RenderPrompt(cfg.Dir, "prompt.md", PromptVars{
 			DocsPath:         state.Project.DocsPath,
 			IterationContext: iterCtx,
 			TaskOverride:     taskOverride,
+			ReviewContext:    reviewCtx,
 		})
 		if err != nil {
 			result.Halted = true
