@@ -105,8 +105,8 @@ func (m StatusModel) View() string {
 	for _, t := range m.state.Tasks {
 		icon := taskIcon(t.Status)
 		line := fmt.Sprintf(" %s %s", icon, t.Name)
-		if t.DependsOn != "" {
-			line += statusLabelStyle.Render(fmt.Sprintf(" (depends on: %s)", t.DependsOn))
+		if !t.DependsOn.IsEmpty() {
+			line += statusLabelStyle.Render(fmt.Sprintf(" (depends on: %s)", t.DependsOn.String()))
 		}
 		if t.Status == "in-progress" && t.Notes != "" {
 			line += statusLabelStyle.Render(fmt.Sprintf(" — %q", t.Notes))

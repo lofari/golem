@@ -17,11 +17,11 @@ func TestPrintStatus(t *testing.T) {
 		Tasks: []ctx.Task{
 			{Name: "auth module", Status: "done"},
 			{Name: "API endpoints", Status: "in-progress", Notes: "half done"},
-			{Name: "frontend", Status: "todo", DependsOn: "API endpoints"},
+			{Name: "frontend", Status: "todo", DependsOn: ctx.FlexString{"API endpoints"}},
 			{Name: "deploy", Status: "blocked", BlockedReason: "need CI"},
 		},
 		Decisions: []ctx.Decision{{What: "d1"}, {What: "d2"}},
-		Pitfalls:  []string{"p1"},
+		Pitfalls:  []ctx.Pitfall{{What: "p1"}},
 		Locked:    []ctx.Lock{{Path: "src/auth/"}},
 	}
 
@@ -91,7 +91,7 @@ func TestPrintDecisions(t *testing.T) {
 
 func TestPrintPitfalls(t *testing.T) {
 	var buf bytes.Buffer
-	PrintPitfalls(&buf, []string{"avoid X", "watch for Y"})
+	PrintPitfalls(&buf, []ctx.Pitfall{{What: "avoid X"}, {What: "watch for Y"}})
 	out := buf.String()
 
 	if !strings.Contains(out, "• avoid X") {

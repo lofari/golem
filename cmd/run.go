@@ -4,7 +4,6 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"io"
 	"os"
 	"os/signal"
 	"syscall"
@@ -90,9 +89,10 @@ func runWithTUI(ctx context.Context, dir string, maxIter, maxTurns int, task str
 	outputWriter := tui.NewLineWriter(outputCh)
 	claudeRunner := &runner.ClaudeRunner{
 		Verbose:      verbose,
+		StreamJSON:   true,
 		PluginDirs:   pluginDirs,
 		OutputWriter: outputWriter,
-		ErrWriter:    io.Discard,
+		ErrWriter:    outputWriter,
 	}
 
 	// Run builder loop in background goroutine

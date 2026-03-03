@@ -21,8 +21,8 @@ func PrintStatus(w io.Writer, state ctx.State, logEntries int) {
 		for _, t := range state.Tasks {
 			icon := taskIcon(t.Status)
 			line := fmt.Sprintf("  %s %s", icon, t.Name)
-			if t.DependsOn != "" {
-				line += fmt.Sprintf(" (depends on: %s)", t.DependsOn)
+			if !t.DependsOn.IsEmpty() {
+				line += fmt.Sprintf(" (depends on: %s)", t.DependsOn.String())
 			}
 			if t.Status == "in-progress" && t.Notes != "" {
 				line += fmt.Sprintf(" — %q", t.Notes)
@@ -85,12 +85,12 @@ func PrintDecisions(w io.Writer, decisions []ctx.Decision) {
 	}
 }
 
-func PrintPitfalls(w io.Writer, pitfalls []string) {
+func PrintPitfalls(w io.Writer, pitfalls []ctx.Pitfall) {
 	if len(pitfalls) == 0 {
 		fmt.Fprintln(w, "No pitfalls noted.")
 		return
 	}
 	for _, p := range pitfalls {
-		fmt.Fprintf(w, "• %s\n", p)
+		fmt.Fprintf(w, "• %s\n", p.String())
 	}
 }

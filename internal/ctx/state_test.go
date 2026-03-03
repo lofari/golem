@@ -19,7 +19,7 @@ func TestReadWriteState(t *testing.T) {
 			{Name: "task2", Status: "todo"},
 		},
 		Decisions: []Decision{{What: "use Go", Why: "fast", When: "2026-03-01"}},
-		Pitfalls:  []string{"watch out for X"},
+		Pitfalls:  []Pitfall{{What: "watch out for X"}},
 	}
 
 	if err := WriteState(dir, original); err != nil {

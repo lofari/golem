@@ -31,9 +31,11 @@ var addTaskCmd = &cobra.Command{
 		dependsOn, _ := cmd.Flags().GetString("depends-on")
 
 		task := ctx.Task{
-			Name:      args[0],
-			Status:    "todo",
-			DependsOn: dependsOn,
+			Name:   args[0],
+			Status: "todo",
+		}
+		if dependsOn != "" {
+			task.DependsOn = ctx.FlexString{dependsOn}
 		}
 		state.Tasks = append(state.Tasks, task)
 		if err := ctx.WriteState(dir, state); err != nil {

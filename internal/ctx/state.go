@@ -16,7 +16,45 @@ type State struct {
 	Decisions []Decision `yaml:"decisions"`
 	Locked    []Lock     `yaml:"locked"`
 	Tasks     []Task     `yaml:"tasks"`
-	Pitfalls  []string   `yaml:"pitfalls"`
+	Pitfalls  []Pitfall  `yaml:"pitfalls"`
+}
+
+// Pitfall accepts both a plain string and a structured object in YAML.
+type Pitfall struct {
+	What string `yaml:"what,omitempty"`
+	Fix  string `yaml:"fix,omitempty"`
+}
+
+func (p *Pitfall) UnmarshalYAML(unmarshal func(interface{}) error) error {
+	// Try plain string first
+	var s string
+	if err := unmarshal(&s); err == nil {
+		p.What = s
+		return nil
+	}
+	// Try structured object
+	type pitfallObj Pitfall
+	var obj pitfallObj
+	if err := unmarshal(&obj); err != nil {
+		return err
+	}
+	*p = Pitfall(obj)
+	return nil
+}
+
+func (p Pitfall) MarshalYAML() (interface{}, error) {
+	if p.Fix == "" {
+		return p.What, nil
+	}
+	type pitfallObj Pitfall
+	return pitfallObj(p), nil
+}
+
+func (p Pitfall) String() string {
+	if p.Fix != "" {
+		return p.What + " — " + p.Fix
+	}
+	return p.What
 }
 
 type Project struct {
@@ -44,11 +82,53 @@ type Lock struct {
 }
 
 type Task struct {
-	Name          string `yaml:"name"`
-	Status        string `yaml:"status"`
-	Notes         string `yaml:"notes,omitempty"`
-	DependsOn     string `yaml:"depends_on,omitempty"`
-	BlockedReason string `yaml:"blocked_reason,omitempty"`
+	Name          string     `yaml:"name"`
+	Status        string     `yaml:"status"`
+	Notes         string     `yaml:"notes,omitempty"`
+	DependsOn     FlexString `yaml:"depends_on,omitempty"`
+	BlockedReason string     `yaml:"blocked_reason,omitempty"`
+}
+
+// FlexString accepts both a single string and a list of strings in YAML.
+// When marshaled, it always writes a list if len > 1, or a scalar if len <= 1.
+type FlexString []string
+
+func (f *FlexString) UnmarshalYAML(unmarshal func(interface{}) error) error {
+	var single string
+	if err := unmarshal(&single); err == nil {
+		if single != "" {
+			*f = FlexString{single}
+		}
+		return nil
+	}
+	var multi []string
+	if err := unmarshal(&multi); err != nil {
+		return err
+	}
+	*f = multi
+	return nil
+}
+
+func (f FlexString) MarshalYAML() (interface{}, error) {
+	switch len(f) {
+	case 0:
+		return nil, nil
+	case 1:
+		return f[0], nil
+	default:
+		return []string(f), nil
+	}
+}
+
+func (f FlexString) String() string {
+	if len(f) == 0 {
+		return ""
+	}
+	return strings.Join(f, ", ")
+}
+
+func (f FlexString) IsEmpty() bool {
+	return len(f) == 0
 }
 
 var validPhases = map[string]bool{
