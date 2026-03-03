@@ -19,7 +19,8 @@ The `golem-superpowers:*` variants are designed for autonomous iterations and un
 {{TASK_OVERRIDE}}
 1. Pick exactly ONE task from `tasks` (prefer `in-progress` over `todo`). Do NOT work on more than one task per session.
 2. If a task depends on another task that isn't `done`, skip it.
-3. Find the matching `## Task` section in the implementation doc for detailed steps and code.
+3. For `[review]` tasks: read the task `notes` for what needs fixing, investigate the issue, and implement the fix.
+   For regular tasks: find the matching `## Task` section in the implementation doc for detailed steps and code.
 4. Follow the implementation doc's steps for this task. Write tests. Make sure they pass.
 5. Commit your work with clear commit messages.
 6. After completing your ONE task, proceed to "End of Session". Do not start another task.

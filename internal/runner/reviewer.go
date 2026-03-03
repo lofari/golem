@@ -67,6 +67,22 @@ func RunReview(ctx context.Context, dir string, maxTurns int, model string, runn
 	newCount := countReviewTasks(stateAfter)
 	result.NewReviewTasks = newCount - result.OldReviewTasks
 
+	// If review found issues but no tasks were added, create a fallback task
+	if result.NeedsWork && result.NewReviewTasks == 0 {
+		summary := extractReviewSummary(output)
+		fallbackTask := golemctx.Task{
+			Name:   "[review] address review findings",
+			Status: "todo",
+			Notes:  summary,
+		}
+		stateAfter.Tasks = append(stateAfter.Tasks, fallbackTask)
+		if err := golemctx.WriteState(dir, stateAfter); err != nil {
+			return result, fmt.Errorf("writing fallback review task: %w", err)
+		}
+		result.NewReviewTasks = 1
+		fmt.Fprintf(os.Stderr, "golem: warning: review found issues but did not add tasks — created fallback task\n")
+	}
+
 	// Print results
 	fmt.Fprintf(os.Stderr, "golem: review complete (%s)\n", formatDuration(result.Duration))
 	if result.Approved {
@@ -112,4 +128,27 @@ func countReviewTasks(state golemctx.State) int {
 		}
 	}
 	return count
+}
+
+// extractReviewSummary pulls a usable summary from review output.
+// It takes the last meaningful paragraph before the NEEDS_WORK promise.
+func extractReviewSummary(output string) string {
+	idx := strings.Index(output, needsWorkPromise)
+	if idx < 0 {
+		idx = len(output)
+	}
+	text := strings.TrimSpace(output[:idx])
+
+	// Take up to the last 500 chars for a reasonable notes field
+	if len(text) > 500 {
+		text = text[len(text)-500:]
+		// Trim to sentence boundary if possible
+		if i := strings.Index(text, ". "); i >= 0 {
+			text = text[i+2:]
+		}
+	}
+	if text == "" {
+		text = "Review found issues — re-run `golem review` for details"
+	}
+	return text
 }
