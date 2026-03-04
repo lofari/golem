@@ -17,11 +17,37 @@ type ValidationResult struct {
 func ValidatePostIteration(dir string, stateBefore, stateAfter ctx.State, log ctx.Log) ValidationResult {
 	var result ValidationResult
 
-	// 1. Schema validation
+	// 1. Schema validation — normalize fixable issues, only halt on truly broken state
 	if err := ctx.ValidateState(stateAfter); err != nil {
-		result.Halted = true
-		result.Warnings = append(result.Warnings, fmt.Sprintf("FATAL: state.yaml validation failed: %v", err))
-		return result
+		// Attempt auto-repair: clear invalid phase, fix statuses, then re-validate
+		repaired := stateAfter
+		if repaired.Status.Phase != "" {
+			if _, ok := ctx.ValidPhases()[repaired.Status.Phase]; !ok {
+				result.Warnings = append(result.Warnings,
+					fmt.Sprintf("WARNING — invalid phase %q, resetting to \"building\"", repaired.Status.Phase))
+				repaired.Status.Phase = "building"
+			}
+		}
+		for i := range repaired.Tasks {
+			if _, ok := ctx.ValidTaskStatuses()[repaired.Tasks[i].Status]; !ok {
+				result.Warnings = append(result.Warnings,
+					fmt.Sprintf("WARNING — task %q has invalid status %q, resetting to \"todo\"", repaired.Tasks[i].Name, repaired.Tasks[i].Status))
+				repaired.Tasks[i].Status = "todo"
+			}
+			if repaired.Tasks[i].Status == "blocked" && repaired.Tasks[i].BlockedReason == "" {
+				repaired.Tasks[i].BlockedReason = "no reason provided by agent"
+			}
+		}
+		if err2 := ctx.ValidateState(repaired); err2 != nil {
+			// Still broken after repair — halt
+			result.Halted = true
+			result.Warnings = append(result.Warnings, fmt.Sprintf("FATAL: state.yaml validation failed: %v", err2))
+			return result
+		}
+		// Write repaired state back
+		if writeErr := ctx.WriteState(dir, repaired); writeErr != nil {
+			result.Warnings = append(result.Warnings, fmt.Sprintf("WARNING — could not write repaired state: %v", writeErr))
+		}
 	}
 
 	// 2. Locked path violation detection

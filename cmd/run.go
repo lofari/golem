@@ -54,7 +54,12 @@ var runCmd = &cobra.Command{
 }
 
 func runWithoutTUI(ctx context.Context, dir string, maxIter, maxTurns int, task string, dryRun, verbose, review bool, model string, pluginDirs []string, sandbox bool) error {
-	claudeRunner := &runner.ClaudeRunner{Verbose: verbose, PluginDirs: pluginDirs, Sandbox: sandbox}
+	claudeRunner := &runner.ClaudeRunner{
+		Verbose:    verbose,
+		StreamJSON: sandbox, // stream-json flushes reliably through docker
+		PluginDirs: pluginDirs,
+		Sandbox:    sandbox,
+	}
 
 	result, err := runner.RunBuilderLoop(ctx, runner.BuilderConfig{
 		Dir:           dir,

@@ -27,8 +27,8 @@ The `golem-superpowers:*` variants are designed for autonomous iterations and un
 
 ## End of Session
 Before exiting, update `.ctx/state.yaml`:
-1. Update the task you worked on (status, notes).
-2. Mark task as `done` if fully complete and tested.
+1. Update the task you worked on (status, notes). Valid statuses are exactly: `todo`, `in-progress`, `done`, `blocked`.
+2. Mark task as `done` if fully complete and tested. Do NOT write "complete", "completed", or "finished" — use `done`.
 3. Add any new `decisions` with `what`, `why`, and `when`.
 4. Add any new `pitfalls` discovered.
 5. Add to `locked` any completed, tested modules that should not be modified.

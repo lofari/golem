@@ -32,7 +32,12 @@ var reviewCmd = &cobra.Command{
 		verbose, _ := cmd.Flags().GetBool("verbose")
 		pluginDirs, _ := cmd.Flags().GetStringSlice("plugin-dir")
 		sandbox, _ := cmd.Flags().GetBool("sandbox")
-		_, err = runner.RunReview(ctx, dir, maxTurns, model, &runner.ClaudeRunner{Verbose: verbose, PluginDirs: pluginDirs, Sandbox: sandbox})
+		_, err = runner.RunReview(ctx, dir, maxTurns, model, &runner.ClaudeRunner{
+			Verbose:    verbose,
+			StreamJSON: sandbox, // stream-json flushes reliably through docker
+			PluginDirs: pluginDirs,
+			Sandbox:    sandbox,
+		})
 		return err
 	},
 }

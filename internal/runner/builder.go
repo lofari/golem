@@ -57,6 +57,9 @@ func RunBuilderLoop(ctx context.Context, cfg BuilderConfig) (BuilderResult, erro
 	fmt.Fprintf(os.Stderr, "golem: starting builder loop (max %d iterations)\n", cfg.MaxIterations)
 	fmt.Fprintf(os.Stderr, "golem: %d tasks remaining\n\n", remaining)
 
+	const maxConsecutiveFailures = 3
+	consecutiveFailures := 0
+
 Loop:
 	for i := 1; i <= cfg.MaxIterations; i++ {
 		select {
@@ -117,11 +120,18 @@ Loop:
 		SaveSessionOutput(cfg.Dir, "build", i, output)
 
 		if err != nil {
+			consecutiveFailures++
 			fmt.Fprintf(os.Stderr, "golem: iteration %d failed (%v) — continuing\n", i, err)
 			cfg.emit(Event{Type: EventIterEnd, Iter: i, Err: err})
 			result.Iterations = i
+			if consecutiveFailures >= maxConsecutiveFailures {
+				result.Halted = true
+				result.HaltReason = fmt.Sprintf("%d consecutive failures — last error: %v", consecutiveFailures, err)
+				break
+			}
 			continue
 		}
+		consecutiveFailures = 0
 
 		// Check for COMPLETE promise
 		if strings.Contains(output, completePromise) {
@@ -180,6 +190,8 @@ Loop:
 	remaining = state.RemainingTasks()
 	if result.Completed {
 		fmt.Fprintf(os.Stderr, "\ngolem: all tasks done! (%d iterations, %s)\n", result.Iterations, formatDuration(result.Duration))
+	} else if result.Halted {
+		fmt.Fprintf(os.Stderr, "\ngolem: halted after %d iterations (%s): %s\n", result.Iterations, formatDuration(result.Duration), result.HaltReason)
 	} else {
 		fmt.Fprintf(os.Stderr, "\ngolem: stopped after %d iterations (%s), %d tasks remaining\n", result.Iterations, formatDuration(result.Duration), remaining)
 	}

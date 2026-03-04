@@ -2,6 +2,8 @@
 package runner
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -9,16 +11,76 @@ import (
 )
 
 func TestValidatePostIteration_SchemaFailure(t *testing.T) {
-	// State with invalid task status should halt
+	// State with missing project name is unfixable — should halt
 	before := ctx.State{Project: ctx.Project{Name: "test"}}
 	after := ctx.State{
-		Project: ctx.Project{Name: "test"},
-		Tasks:   []ctx.Task{{Name: "bad", Status: "invalid"}},
+		Project: ctx.Project{Name: ""}, // missing required field
+		Tasks:   []ctx.Task{{Name: "t", Status: "todo"}},
 	}
 
 	result := ValidatePostIteration(t.TempDir(), before, after, ctx.Log{})
 	if !result.Halted {
-		t.Error("should halt on schema validation failure")
+		t.Error("should halt on unfixable schema failure (missing project name)")
+	}
+}
+
+func TestValidatePostIteration_AutoRepairPhase(t *testing.T) {
+	dir := t.TempDir()
+	setupState(t, dir, ctx.State{
+		Project: ctx.Project{Name: "test"},
+		Status:  ctx.Status{Phase: "review"}, // invalid phase
+		Tasks:   []ctx.Task{{Name: "t", Status: "todo"}},
+	})
+
+	before := ctx.State{Project: ctx.Project{Name: "test"}}
+	after := ctx.State{
+		Project: ctx.Project{Name: "test"},
+		Status:  ctx.Status{Phase: "review"},
+		Tasks:   []ctx.Task{{Name: "t", Status: "todo"}},
+	}
+
+	result := ValidatePostIteration(dir, before, after, ctx.Log{})
+	if result.Halted {
+		t.Errorf("should auto-repair invalid phase, not halt; warnings: %v", result.Warnings)
+	}
+	if len(result.Warnings) == 0 {
+		t.Error("should emit a warning about invalid phase")
+	}
+}
+
+func TestValidatePostIteration_AutoRepairStatus(t *testing.T) {
+	dir := t.TempDir()
+	setupState(t, dir, ctx.State{
+		Project: ctx.Project{Name: "test"},
+		Tasks:   []ctx.Task{{Name: "bad", Status: "gibberish"}},
+	})
+
+	before := ctx.State{Project: ctx.Project{Name: "test"}}
+	after := ctx.State{
+		Project: ctx.Project{Name: "test"},
+		Tasks:   []ctx.Task{{Name: "bad", Status: "gibberish"}},
+	}
+
+	result := ValidatePostIteration(dir, before, after, ctx.Log{})
+	if result.Halted {
+		t.Errorf("should auto-repair invalid status, not halt; warnings: %v", result.Warnings)
+	}
+
+	// Verify repaired state was written
+	repaired, err := ctx.ReadState(dir)
+	if err != nil {
+		t.Fatalf("reading repaired state: %v", err)
+	}
+	if repaired.Tasks[0].Status != "todo" {
+		t.Errorf("repaired status = %q, want %q", repaired.Tasks[0].Status, "todo")
+	}
+}
+
+func setupState(t *testing.T, dir string, s ctx.State) {
+	t.Helper()
+	os.MkdirAll(filepath.Join(dir, ".ctx"), 0755)
+	if err := ctx.WriteState(dir, s); err != nil {
+		t.Fatalf("setup state: %v", err)
 	}
 }
 

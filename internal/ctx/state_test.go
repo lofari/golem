@@ -99,6 +99,87 @@ func TestValidateState(t *testing.T) {
 	}
 }
 
+func TestNormalizeTaskStatuses(t *testing.T) {
+	tasks := []Task{
+		{Name: "a", Status: "complete"},
+		{Name: "b", Status: "completed"},
+		{Name: "c", Status: "finished"},
+		{Name: "d", Status: "pending"},
+		{Name: "e", Status: "in_progress"},
+		{Name: "f", Status: "wip"},
+		{Name: "g", Status: "stuck"},
+		{Name: "h", Status: "done"},   // already canonical
+		{Name: "i", Status: "todo"},   // already canonical
+		{Name: "j", Status: "Custom"}, // unknown — left as-is
+	}
+
+	fixed := NormalizeTaskStatuses(tasks)
+
+	want := map[string]string{
+		"a": "done", "b": "done", "c": "done",
+		"d": "todo", "e": "in-progress", "f": "in-progress",
+		"g": "blocked", "h": "done", "i": "todo", "j": "Custom",
+	}
+	for _, task := range tasks {
+		if task.Status != want[task.Name] {
+			t.Errorf("task %q: got %q, want %q", task.Name, task.Status, want[task.Name])
+		}
+	}
+	if fixed != 7 {
+		t.Errorf("fixed = %d, want 7", fixed)
+	}
+}
+
+func TestNormalizePhase(t *testing.T) {
+	tests := []struct {
+		input   string
+		want    string
+		changed bool
+	}{
+		{"review", "polishing", true},
+		{"reviewing", "polishing", true},
+		{"build", "building", true},
+		{"development", "building", true},
+		{"fix", "fixing", true},
+		{"debugging", "fixing", true},
+		{"plan", "planning", true},
+		{"building", "building", false},  // already canonical
+		{"unknown", "unknown", false},    // not in aliases
+	}
+	for _, tt := range tests {
+		got, changed := NormalizePhase(tt.input)
+		if got != tt.want || changed != tt.changed {
+			t.Errorf("NormalizePhase(%q) = (%q, %v), want (%q, %v)", tt.input, got, changed, tt.want, tt.changed)
+		}
+	}
+}
+
+func TestReadStateNormalizesStatuses(t *testing.T) {
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, ".ctx"), 0755)
+
+	yaml := `project:
+  name: test
+tasks:
+  - name: t1
+    status: completed
+  - name: t2
+    status: in_progress
+`
+	os.WriteFile(filepath.Join(dir, ".ctx", "state.yaml"), []byte(yaml), 0644)
+
+	state, err := ReadState(dir)
+	if err != nil {
+		t.Fatalf("ReadState: %v", err)
+	}
+	if state.Tasks[0].Status != "done" {
+		t.Errorf("task t1 status = %q, want %q", state.Tasks[0].Status, "done")
+	}
+	if state.Tasks[1].Status != "in-progress" {
+		t.Errorf("task t2 status = %q, want %q", state.Tasks[1].Status, "in-progress")
+	}
+}
+
 func TestRemainingTasks(t *testing.T) {
 	s := State{
 		Tasks: []Task{

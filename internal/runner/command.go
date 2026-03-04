@@ -32,7 +32,7 @@ func (c *ClaudeRunner) Run(ctx context.Context, dir string, prompt string, maxTu
 	if model != "" {
 		args = append(args, "--model", model)
 	}
-	if c.Verbose {
+	if c.Verbose || c.StreamJSON {
 		args = append(args, "--verbose")
 	}
 	if c.StreamJSON {
@@ -45,6 +45,7 @@ func (c *ClaudeRunner) Run(ctx context.Context, dir string, prompt string, maxTu
 	cmdName, cmdArgs := c.buildCommand(dir, args)
 	cmd := exec.CommandContext(ctx, cmdName, cmdArgs...)
 	cmd.Dir = dir
+	cmd.Stdin = strings.NewReader("") // explicit pipe — prevents warden from detecting a TTY
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 
 	display := c.OutputWriter
@@ -58,11 +59,15 @@ func (c *ClaudeRunner) Run(ctx context.Context, dir string, prompt string, maxTu
 
 	cmd.Stderr = stderr
 
+	if c.Sandbox {
+		fmt.Fprintln(stderr, "golem: starting warden sandbox container...")
+	}
+
 	if c.StreamJSON {
 		return c.runStreamJSON(ctx, cmd, display, dir)
 	}
 
-	// Default: text mode — pipe stdout directly
+	// Default: text mode — pipe stdout directly to display and capture
 	var outputBuf strings.Builder
 	cmd.Stdout = io.MultiWriter(display, &outputBuf)
 
@@ -86,7 +91,11 @@ func (c *ClaudeRunner) buildCommand(dir string, claudeArgs []string) (string, []
 		"run",
 		"--network",
 		"--tools", "claude",
-		"--mount", homeDir + "/.claude:ro",
+		"--workdir", dir,
+		"--env", "HOME=" + homeDir,
+		"--env", "CI=true",
+		"--mount", homeDir + "/.claude:rw",
+		"--mount", homeDir + "/.claude.json:rw",
 		"--mount", dir + ":rw",
 	}
 	for _, d := range c.PluginDirs {
@@ -97,7 +106,8 @@ func (c *ClaudeRunner) buildCommand(dir string, claudeArgs []string) (string, []
 		wardenArgs = append(wardenArgs, "--mount", d+":ro")
 	}
 	wardenArgs = append(wardenArgs, "--")
-	wardenArgs = append(wardenArgs, "claude")
+	// Force line-buffered stdout so stream-json flows through docker without delay
+	wardenArgs = append(wardenArgs, "stdbuf", "-oL", "claude")
 	wardenArgs = append(wardenArgs, claudeArgs...)
 	return "warden", wardenArgs
 }

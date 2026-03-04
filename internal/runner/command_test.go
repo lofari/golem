@@ -51,7 +51,13 @@ func TestBuildCommand_Sandbox(t *testing.T) {
 	if !strings.Contains(joined, "--tools claude") {
 		t.Error("missing --tools claude")
 	}
-	if !strings.Contains(joined, "--mount "+homeDir+"/.claude:ro") {
+	if !strings.Contains(joined, "--env HOME="+homeDir) {
+		t.Errorf("missing HOME env, got: %s", joined)
+	}
+	if !strings.Contains(joined, "--env CI=true") {
+		t.Errorf("missing CI env, got: %s", joined)
+	}
+	if !strings.Contains(joined, "--mount "+homeDir+"/.claude:rw") {
 		t.Errorf("missing home .claude mount, got: %s", joined)
 	}
 	if !strings.Contains(joined, "--mount "+projectDir+":rw") {
@@ -70,12 +76,13 @@ func TestBuildCommand_Sandbox(t *testing.T) {
 		t.Fatal("missing -- separator in warden args")
 	}
 	tail := got[dashIdx+1:]
-	if tail[0] != "claude" {
-		t.Errorf("expected 'claude' after --, got %q", tail[0])
+	// Expect: stdbuf -oL claude <args...>
+	if len(tail) < 3 || tail[0] != "stdbuf" || tail[1] != "-oL" || tail[2] != "claude" {
+		t.Errorf("expected 'stdbuf -oL claude' after --, got %v", tail[:min(3, len(tail))])
 	}
 	for i, a := range claudeArgs {
-		if tail[1+i] != a {
-			t.Errorf("claude arg[%d]: expected %q, got %q", i, a, tail[1+i])
+		if tail[3+i] != a {
+			t.Errorf("claude arg[%d]: expected %q, got %q", i, a, tail[3+i])
 		}
 	}
 }

@@ -81,6 +81,23 @@ type Lock struct {
 	Note string `yaml:"note"`
 }
 
+func (l *Lock) UnmarshalYAML(unmarshal func(interface{}) error) error {
+	// Try plain string first (e.g. "- src/foo.go")
+	var s string
+	if err := unmarshal(&s); err == nil {
+		l.Path = s
+		return nil
+	}
+	// Try structured object (e.g. "- path: src/foo.go\n  note: complete")
+	type lockObj Lock
+	var obj lockObj
+	if err := unmarshal(&obj); err != nil {
+		return err
+	}
+	*l = Lock(obj)
+	return nil
+}
+
 type Task struct {
 	Name          string     `yaml:"name"`
 	Status        string     `yaml:"status"`
@@ -135,8 +152,73 @@ var validPhases = map[string]bool{
 	"planning": true, "building": true, "fixing": true, "polishing": true,
 }
 
+// ValidPhases returns the set of valid phase values.
+func ValidPhases() map[string]bool { return validPhases }
+
+// phaseAliases maps common agent-written phase synonyms to canonical values.
+var phaseAliases = map[string]string{
+	"plan":           "planning",
+	"build":          "building",
+	"development":    "building",
+	"developing":     "building",
+	"implementation": "building",
+	"implementing":   "building",
+	"fix":            "fixing",
+	"bugfix":         "fixing",
+	"bugfixing":      "fixing",
+	"debugging":      "fixing",
+	"review":         "polishing",
+	"reviewing":      "polishing",
+	"polish":         "polishing",
+	"cleanup":        "polishing",
+	"refactoring":    "polishing",
+}
+
 var validTaskStatuses = map[string]bool{
 	"todo": true, "in-progress": true, "done": true, "blocked": true,
+}
+
+// ValidTaskStatuses returns the set of valid task status values.
+func ValidTaskStatuses() map[string]bool { return validTaskStatuses }
+
+// statusAliases maps common agent-written synonyms to canonical values.
+var statusAliases = map[string]string{
+	"complete":    "done",
+	"completed":   "done",
+	"finished":    "done",
+	"fixed":       "done",
+	"pending":     "todo",
+	"open":        "todo",
+	"not started": "todo",
+	"in_progress": "in-progress",
+	"in progress": "in-progress",
+	"wip":         "in-progress",
+	"working":     "in-progress",
+	"stuck":       "blocked",
+}
+
+// NormalizeTaskStatuses rewrites common status synonyms to their canonical form.
+// Returns the number of statuses that were normalized.
+func NormalizeTaskStatuses(tasks []Task) int {
+	fixed := 0
+	for i := range tasks {
+		lower := strings.ToLower(strings.TrimSpace(tasks[i].Status))
+		if canonical, ok := statusAliases[lower]; ok {
+			tasks[i].Status = canonical
+			fixed++
+		}
+	}
+	return fixed
+}
+
+// NormalizePhase rewrites a phase synonym to its canonical form.
+// Returns the canonical phase and true if it was changed.
+func NormalizePhase(phase string) (string, bool) {
+	lower := strings.ToLower(strings.TrimSpace(phase))
+	if canonical, ok := phaseAliases[lower]; ok {
+		return canonical, true
+	}
+	return phase, false
 }
 
 func StatePath(dir string) string {
@@ -151,6 +233,10 @@ func ReadState(dir string) (State, error) {
 	var s State
 	if err := yaml.Unmarshal(data, &s); err != nil {
 		return State{}, fmt.Errorf("parsing state.yaml: %w", err)
+	}
+	NormalizeTaskStatuses(s.Tasks)
+	if canonical, changed := NormalizePhase(s.Status.Phase); changed {
+		s.Status.Phase = canonical
 	}
 	return s, nil
 }
