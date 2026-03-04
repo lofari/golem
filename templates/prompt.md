@@ -26,23 +26,17 @@ The `golem-superpowers:*` variants are designed for autonomous iterations and un
 6. After completing your ONE task, proceed to "End of Session". Do not start another task.
 
 ## End of Session
-Before exiting, update `.ctx/state.yaml`:
-1. Update the task you worked on (status, notes). Valid statuses are exactly: `todo`, `in-progress`, `done`, `blocked`.
-2. Mark task as `done` if fully complete and tested. Do NOT write "complete", "completed", or "finished" — use `done`.
-3. Add any new `decisions` with `what`, `why`, and `when`.
-4. Add any new `pitfalls` discovered.
-5. Add to `locked` any completed, tested modules that should not be modified.
-6. Update `status.current_focus` and `status.last_session` with today's date and summary.
+Before exiting, use the golem MCP tools to update state:
+1. Call `mark_task` to update the task you worked on (set status and notes).
+2. Call `set_phase` if the project phase has changed.
+3. Call `add_decision` for any new architectural decisions.
+4. Call `add_pitfall` for any lessons learned.
+5. Call `add_locked` for any completed, tested modules that should not be modified.
+6. Call `log_session` with task name, outcome (done|partial|blocked|unproductive), summary, and files_changed.
 
-Then append a session entry to `.ctx/log.yaml` under `sessions:`:
-- iteration: (increment from last entry)
-- timestamp: (current ISO timestamp)
-- task: (what you worked on)
-- outcome: done | partial | blocked | unproductive
-- summary: (brief description)
-- files_changed: (list of files you modified)
-- decisions_made: (list, if any)
-- pitfalls_found: (list, if any)
+If the golem MCP tools are not available, fall back to editing `.ctx/state.yaml` and `.ctx/log.yaml` directly.
+Valid task statuses: `todo`, `in-progress`, `done`, `blocked`.
+Valid phases: `planning`, `building`, `fixing`, `polishing`.
 
 ## Completion
 If ALL tasks in `state.yaml` have status `done`, output:
