@@ -23,6 +23,7 @@ type ClaudeRunner struct {
 	StreamJSON   bool      // use --output-format stream-json and parse output for TUI
 	Sandbox      bool      // run Claude inside a warden sandbox container
 	PluginDirs   []string  // local plugin directories passed via --plugin-dir
+	MCPConfig    string    // path to mcp_servers.json (if set, passes --mcp-config)
 	OutputWriter io.Writer // display destination; defaults to os.Stdout
 	ErrWriter    io.Writer // stderr destination; defaults to os.Stderr
 }
@@ -40,6 +41,9 @@ func (c *ClaudeRunner) Run(ctx context.Context, dir string, prompt string, maxTu
 	}
 	for _, d := range c.PluginDirs {
 		args = append(args, "--plugin-dir", d)
+	}
+	if c.MCPConfig != "" {
+		args = append(args, "--mcp-config", c.MCPConfig)
 	}
 
 	cmdName, cmdArgs := c.buildCommand(dir, args)
@@ -79,6 +83,30 @@ func (c *ClaudeRunner) Run(ctx context.Context, dir string, prompt string, maxTu
 	}
 
 	return outputBuf.String(), nil
+}
+
+// WriteMCPConfig writes a temporary mcp_servers.json for this session.
+// Returns the path to the config file.
+func WriteMCPConfig(dir string) (string, error) {
+	golemBin, err := os.Executable()
+	if err != nil {
+		return "", fmt.Errorf("finding golem binary: %w", err)
+	}
+
+	config := fmt.Sprintf(`{
+  "mcpServers": {
+    "golem": {
+      "command": %q,
+      "args": ["mcp-serve", "--dir", %q]
+    }
+  }
+}`, golemBin, dir)
+
+	configPath := filepath.Join(dir, ".ctx", "mcp_servers.json")
+	if err := os.WriteFile(configPath, []byte(config), 0644); err != nil {
+		return "", fmt.Errorf("writing mcp config: %w", err)
+	}
+	return configPath, nil
 }
 
 func (c *ClaudeRunner) buildCommand(dir string, claudeArgs []string) (string, []string) {

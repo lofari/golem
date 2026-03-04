@@ -20,6 +20,7 @@ type BuilderConfig struct {
 	TaskOverride  string
 	DryRun        bool
 	Verbose       bool
+	MCPEnabled    bool
 	Runner        CommandRunner
 	Events        chan<- Event
 }
@@ -109,6 +110,18 @@ Loop:
 		if cfg.DryRun {
 			fmt.Fprintf(os.Stderr, "golem: [dry-run] iteration %d would run with prompt:\n%s\n", i, prompt)
 			continue
+		}
+
+		// Set up MCP config if enabled
+		if cfg.MCPEnabled {
+			if claudeRunner, ok := cfg.Runner.(*ClaudeRunner); ok {
+				mcpPath, mcpErr := WriteMCPConfig(cfg.Dir)
+				if mcpErr != nil {
+					fmt.Fprintf(os.Stderr, "golem: warning: could not write MCP config: %v\n", mcpErr)
+				} else {
+					claudeRunner.MCPConfig = mcpPath
+				}
+			}
 		}
 
 		fmt.Fprintf(os.Stderr, "golem: iteration %d starting...\n", i)
