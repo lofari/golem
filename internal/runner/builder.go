@@ -78,6 +78,12 @@ Loop:
 			break
 		}
 
+		// Snapshot state before agent touches it
+		if err := SaveSnapshot(cfg.Dir, i); err != nil {
+			fmt.Fprintf(os.Stderr, "golem: warning: could not save snapshot: %v\n", err)
+		}
+		PruneSnapshots(cfg.Dir, maxSnapshots)
+
 		remaining = state.RemainingTasks()
 		if remaining == 0 {
 			result.Completed = true

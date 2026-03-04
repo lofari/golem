@@ -39,9 +39,19 @@ func ValidatePostIteration(dir string, stateBefore, stateAfter ctx.State, log ct
 			}
 		}
 		if err2 := ctx.ValidateState(repaired); err2 != nil {
-			// Still broken after repair — halt
+			// Try snapshot restore before giving up
+			restored, restoreErr := RestoreLatestSnapshot(dir)
+			if restoreErr != nil {
+				result.Warnings = append(result.Warnings, fmt.Sprintf("WARNING — snapshot restore failed: %v", restoreErr))
+			}
+			if restored {
+				result.Warnings = append(result.Warnings, "WARNING — state corrupted beyond repair, restored from snapshot")
+				// Don't halt — next iteration will re-read restored state
+				return result
+			}
+			// No snapshot available — halt
 			result.Halted = true
-			result.Warnings = append(result.Warnings, fmt.Sprintf("FATAL: state.yaml validation failed: %v", err2))
+			result.Warnings = append(result.Warnings, fmt.Sprintf("FATAL: state.yaml validation failed (no snapshot to restore): %v", err2))
 			return result
 		}
 		// Write repaired state back
