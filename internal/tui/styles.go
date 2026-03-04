@@ -23,6 +23,10 @@ var (
 	todoStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))  // dim
 	blockedStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("1"))  // red
 
+	// Halt/warning styles
+	haltStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("1")).Bold(true) // red bold
+	warnStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("3"))           // yellow
+
 	// Footer
 	footerStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("8"))

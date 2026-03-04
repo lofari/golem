@@ -31,6 +31,7 @@ type RunModel struct {
 	done         bool
 	finalResult  *runner.BuilderResult
 	finalErr     error
+	haltReason   string
 	filesChanged int
 
 	// Layout
@@ -156,14 +157,32 @@ func (m RunModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				m.filesChanged = total
 			}
+			if msg.Err != nil {
+				m.outputLines = append(m.outputLines, fmt.Sprintf("⚠ iteration %d failed: %v", msg.Iter, msg.Err))
+				if m.ready {
+					m.viewport.SetContent(strings.Join(m.outputLines, "\n"))
+					m.viewport.GotoBottom()
+				}
+			}
 
 		case runner.EventLoopDone:
 			m.done = true
 			m.finalResult = msg.Result
 			m.finalErr = msg.Err
+			if msg.Result != nil && msg.Result.Halted {
+				m.haltReason = msg.Result.HaltReason
+			}
 			// Refresh state one last time
 			if s, err := golemctx.ReadState(m.dir); err == nil {
 				m.state = s
+			}
+			if m.haltReason != "" {
+				m.outputLines = append(m.outputLines, "")
+				m.outputLines = append(m.outputLines, haltStyle.Render("HALTED: "+m.haltReason))
+				if m.ready {
+					m.viewport.SetContent(strings.Join(m.outputLines, "\n"))
+					m.viewport.GotoBottom()
+				}
 			}
 		}
 		cmds = append(cmds, waitForEvent(m.events))
@@ -222,7 +241,9 @@ func (m RunModel) View() string {
 	footerRight := ""
 	if m.done {
 		if m.finalResult != nil && m.finalResult.Completed {
-			footerRight = "all tasks done!"
+			footerRight = doneStyle.Render("all tasks done!")
+		} else if m.haltReason != "" {
+			footerRight = haltStyle.Render("HALTED: " + m.haltReason)
 		} else {
 			footerRight = "loop finished"
 		}
