@@ -141,16 +141,19 @@ golem run --review
 | `--review` | `false` | Chain a review pass after builder completes |
 | `--no-tui` | `false` | Disable terminal UI (plain text output) |
 | `--sandbox` | `false` | Run Claude inside a warden sandbox container |
+| `--mcp` | `true` | Enable golem MCP server for structured state updates |
+| `--parallel` | `1` | Max parallel task sessions (1 = sequential) |
 
 When a terminal is detected, `golem run` displays a live TUI with a split-pane layout: Claude output on the left, task list and stats on the right. Use `--no-tui` to fall back to plain text.
 
 Each iteration:
 1. Reads state and remaining tasks
-2. Renders prompt template with iteration context
-3. Spawns `claude -p` with the rendered prompt
-4. Checks for `<promise>COMPLETE</promise>` in output
-5. Validates post-iteration (schema, locked paths, regressions, thrashing)
-6. Prints summary and continues
+2. Snapshots state for rollback protection
+3. Renders prompt template with iteration context
+4. Spawns `claude -p` with the rendered prompt (and MCP server if enabled)
+5. Checks for `<promise>COMPLETE</promise>` in output
+6. Validates post-iteration (schema, locked paths, regressions, thrashing)
+7. Prints summary and continues
 
 ### `golem review`
 
@@ -273,7 +276,10 @@ your-project/
 │   ├── state.yaml          # Current state (tasks, decisions, locks, pitfalls)
 │   ├── log.yaml            # Append-only session history
 │   ├── prompt.md           # Builder prompt template (customizable)
-│   └── review-prompt.md    # Review prompt template (customizable)
+│   ├── review-prompt.md    # Review prompt template (customizable)
+│   ├── snapshots/          # Auto-managed state snapshots for rollback
+│   ├── sessions/           # Raw session output from each iteration
+│   └── mcp_servers.json    # Auto-generated MCP config (when --mcp is enabled)
 ├── CLAUDE.md               # Injected conventions (golem section)
 └── docs/                   # Your design and implementation docs
 ```
@@ -347,6 +353,51 @@ Templates in `.ctx/` are customizable. They use three variables:
 
 Edit `.ctx/prompt.md` or `.ctx/review-prompt.md` to customize agent behavior.
 
+## MCP Server
+
+golem includes a built-in [MCP](https://modelcontextprotocol.io/) server that gives the agent structured tools for updating state. Instead of editing YAML directly (which risks corruption), the agent calls typed tools:
+
+| Tool | Description |
+|------|-------------|
+| `mark_task` | Update a task's status and notes |
+| `set_phase` | Change the project phase |
+| `add_decision` | Record an architectural decision |
+| `add_pitfall` | Record a lesson learned |
+| `add_locked` | Lock a completed module path |
+| `log_session` | Append a session entry to the log |
+
+The MCP server is enabled by default (`--mcp`). golem writes a temporary `mcp_servers.json` and passes it to Claude via `--mcp-config`. The server runs as a subprocess (`golem mcp-serve`) using stdio transport and uses file locking to prevent concurrent writes.
+
+If MCP tools are unavailable (e.g. older Claude Code version), the agent falls back to direct YAML editing.
+
+## State Snapshots
+
+Before each iteration, golem snapshots `state.yaml` to `.ctx/snapshots/`. If the agent corrupts state beyond repair, golem automatically restores the latest snapshot and continues instead of halting the loop.
+
+- Snapshots are named `state-NNN.yaml` (one per iteration)
+- Only the 5 most recent snapshots are kept (older ones are pruned)
+- Restoration happens during post-iteration validation, before the corruption halt
+
+This provides resilience against agent errors without losing progress.
+
+## Parallel Execution
+
+With `--parallel N` (where N > 1), golem can run multiple tasks concurrently using git worktrees:
+
+```bash
+golem run --parallel 3
+```
+
+Each parallel iteration:
+1. Identifies eligible tasks (todo/in-progress, dependencies resolved)
+2. Creates a git worktree per task with its own branch (`golem/<task-name>`)
+3. Spawns independent Claude sessions in each worktree
+4. Merges completed branches back in alphabetical order
+5. Aborts and retries on merge conflicts (next iteration)
+6. Cleans up worktrees and branches
+
+Parallel execution requires the project to be a git repository. Tasks with unresolved dependencies are automatically excluded from parallel batches.
+
 ## Safety
 
 golem runs post-iteration validation after every builder iteration:
@@ -354,6 +405,7 @@ golem runs post-iteration validation after every builder iteration:
 | Check | Severity | Trigger |
 |-------|----------|---------|
 | Schema validation | **Halts loop** | `state.yaml` fails to parse or has invalid values |
+| State snapshot restore | Auto-recovery | State corrupted beyond repair — restores from snapshot |
 | Locked path violation | Warning | Agent modified files under a locked path |
 | Task regression | Warning | Task status went from `done` to non-done |
 | Thrashing detection | Warning | Same task in-progress for 3+ consecutive iterations |
