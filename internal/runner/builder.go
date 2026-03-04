@@ -21,6 +21,7 @@ type BuilderConfig struct {
 	DryRun        bool
 	Verbose       bool
 	MCPEnabled    bool
+	Parallel      int // max parallel sessions (1 = sequential)
 	Runner        CommandRunner
 	Events        chan<- Event
 }
@@ -121,6 +122,38 @@ Loop:
 				} else {
 					claudeRunner.MCPConfig = mcpPath
 				}
+			}
+		}
+
+		// Check for parallel execution
+		if cfg.Parallel > 1 {
+			eligible := EligibleTasks(state.Tasks)
+			if len(eligible) >= 2 {
+				// Cap at configured parallelism
+				n := cfg.Parallel
+				if n > len(eligible) {
+					n = len(eligible)
+				}
+				batch := eligible[:n]
+
+				fmt.Fprintf(os.Stderr, "golem: parallel iteration %d — running %d tasks concurrently\n", i, len(batch))
+				cfg.emit(Event{Type: EventIterStart, Iter: i, MaxIter: cfg.MaxIterations})
+
+				results := RunParallel(ctx, cfg, batch, i)
+				MergeParallelResults(cfg.Dir, results)
+
+				// Count successes
+				merged := 0
+				for _, r := range results {
+					if r.Merged {
+						merged++
+					}
+				}
+				fmt.Fprintf(os.Stderr, "golem: parallel iteration %d — %d/%d tasks merged\n", i, merged, len(batch))
+				cfg.emit(Event{Type: EventIterEnd, Iter: i, Task: fmt.Sprintf("%d parallel tasks", len(batch))})
+
+				result.Iterations = i
+				continue // skip the sequential path
 			}
 		}
 

@@ -43,18 +43,19 @@ var runCmd = &cobra.Command{
 		noTUI, _ := cmd.Flags().GetBool("no-tui")
 		sandbox, _ := cmd.Flags().GetBool("sandbox")
 		mcpEnabled, _ := cmd.Flags().GetBool("mcp")
+		parallel, _ := cmd.Flags().GetInt("parallel")
 
 		useTUI := !noTUI && !dryRun && term.IsTerminal(int(os.Stdout.Fd()))
 
 		if useTUI {
-			return runWithTUI(ctx, dir, maxIter, maxTurns, task, verbose, review, model, pluginDirs, sandbox, mcpEnabled)
+			return runWithTUI(ctx, dir, maxIter, maxTurns, task, verbose, review, model, pluginDirs, sandbox, mcpEnabled, parallel)
 		}
 
-		return runWithoutTUI(ctx, dir, maxIter, maxTurns, task, dryRun, verbose, review, model, pluginDirs, sandbox, mcpEnabled)
+		return runWithoutTUI(ctx, dir, maxIter, maxTurns, task, dryRun, verbose, review, model, pluginDirs, sandbox, mcpEnabled, parallel)
 	},
 }
 
-func runWithoutTUI(ctx context.Context, dir string, maxIter, maxTurns int, task string, dryRun, verbose, review bool, model string, pluginDirs []string, sandbox, mcpEnabled bool) error {
+func runWithoutTUI(ctx context.Context, dir string, maxIter, maxTurns int, task string, dryRun, verbose, review bool, model string, pluginDirs []string, sandbox, mcpEnabled bool, parallel int) error {
 	claudeRunner := &runner.ClaudeRunner{
 		Verbose:    verbose,
 		StreamJSON: sandbox, // stream-json flushes reliably through docker
@@ -71,6 +72,7 @@ func runWithoutTUI(ctx context.Context, dir string, maxIter, maxTurns int, task 
 		DryRun:        dryRun,
 		Verbose:       verbose,
 		MCPEnabled:    mcpEnabled,
+		Parallel:      parallel,
 		Runner:        claudeRunner,
 	})
 	if err != nil {
@@ -90,7 +92,7 @@ func runWithoutTUI(ctx context.Context, dir string, maxIter, maxTurns int, task 
 	return nil
 }
 
-func runWithTUI(ctx context.Context, dir string, maxIter, maxTurns int, task string, verbose, review bool, model string, pluginDirs []string, sandbox, mcpEnabled bool) error {
+func runWithTUI(ctx context.Context, dir string, maxIter, maxTurns int, task string, verbose, review bool, model string, pluginDirs []string, sandbox, mcpEnabled bool, parallel int) error {
 	events := make(chan runner.Event, 100)
 	outputCh := make(chan string, 1000)
 
@@ -118,6 +120,7 @@ func runWithTUI(ctx context.Context, dir string, maxIter, maxTurns int, task str
 			TaskOverride:  task,
 			Verbose:       verbose,
 			MCPEnabled:    mcpEnabled,
+			Parallel:      parallel,
 			Runner:        claudeRunner,
 			Events:        events,
 		})
@@ -146,4 +149,5 @@ func init() {
 	runCmd.Flags().Bool("no-tui", false, "disable terminal UI (plain text output)")
 	runCmd.Flags().Bool("sandbox", false, "run Claude inside a warden sandbox container")
 	runCmd.Flags().Bool("mcp", true, "enable golem MCP server for structured state updates")
+	runCmd.Flags().Int("parallel", 1, "max parallel task sessions (1 = sequential)")
 }
