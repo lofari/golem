@@ -89,31 +89,5 @@ func ValidatePostIteration(dir string, stateBefore, stateAfter ctx.State, log ct
 		}
 	}
 
-	// 4. Thrashing detection
-	thrashing := detectThrashing(log)
-	for _, taskName := range thrashing {
-		result.Warnings = append(result.Warnings,
-			fmt.Sprintf("WARNING — task %q has been in-progress for 3+ consecutive iterations", taskName))
-	}
-
 	return result
-}
-
-// detectThrashing checks if any task has been the subject of 3+ consecutive
-// sessions in the log.
-func detectThrashing(l ctx.Log) []string {
-	if len(l.Sessions) < 3 {
-		return nil
-	}
-
-	var thrashing []string
-	last3 := l.Sessions[len(l.Sessions)-3:]
-
-	// Check if the same task appears in the last 3 consecutive entries
-	task := last3[0].Task
-	if task != "" && last3[1].Task == task && last3[2].Task == task {
-		thrashing = append(thrashing, task)
-	}
-
-	return thrashing
 }

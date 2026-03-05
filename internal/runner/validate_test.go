@@ -115,36 +115,3 @@ func TestValidatePostIteration_TaskRegression(t *testing.T) {
 		t.Error("should warn about task regression")
 	}
 }
-
-func TestDetectThrashing(t *testing.T) {
-	// 3 consecutive sessions on the same task
-	l := ctx.Log{Sessions: []ctx.Session{
-		{Iteration: 1, Task: "payment"},
-		{Iteration: 2, Task: "payment"},
-		{Iteration: 3, Task: "payment"},
-	}}
-
-	thrashing := detectThrashing(l)
-	if len(thrashing) != 1 || thrashing[0] != "payment" {
-		t.Errorf("expected thrashing on 'payment', got %v", thrashing)
-	}
-
-	// Different tasks — no thrashing
-	l2 := ctx.Log{Sessions: []ctx.Session{
-		{Iteration: 1, Task: "auth"},
-		{Iteration: 2, Task: "payment"},
-		{Iteration: 3, Task: "auth"},
-	}}
-	if len(detectThrashing(l2)) != 0 {
-		t.Error("should not detect thrashing with different tasks")
-	}
-
-	// Less than 3 sessions — no thrashing
-	l3 := ctx.Log{Sessions: []ctx.Session{
-		{Iteration: 1, Task: "payment"},
-		{Iteration: 2, Task: "payment"},
-	}}
-	if len(detectThrashing(l3)) != 0 {
-		t.Error("should not detect thrashing with < 3 sessions")
-	}
-}
