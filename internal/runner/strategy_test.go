@@ -98,3 +98,39 @@ func TestStrategy_SuccessResetsFailureCount(t *testing.T) {
 		t.Errorf("after success reset, next failure should retry, got %v", d.Action)
 	}
 }
+
+func TestStrategy_DeadlockHalts(t *testing.T) {
+	s := NewStrategy()
+	state := ctx.State{
+		Project: ctx.Project{Name: "test"},
+		Tasks: []ctx.Task{
+			{Name: "auth", Status: "blocked", BlockedReason: "stuck"},
+			{Name: "api", Status: "todo", DependsOn: ctx.FlexString{"auth"}},
+			{Name: "ui", Status: "todo", DependsOn: ctx.FlexString{"api"}},
+		},
+	}
+	log := ctx.Log{Sessions: []ctx.Session{{Task: "auth", Outcome: "done"}}}
+
+	d := s.Evaluate(state, log, "")
+	if d.Action != ActionHalt {
+		t.Errorf("all tasks blocked by deps should halt, got %v", d.Action)
+	}
+}
+
+func TestStrategy_NoDeadlockWhenActionable(t *testing.T) {
+	s := NewStrategy()
+	state := ctx.State{
+		Project: ctx.Project{Name: "test"},
+		Tasks: []ctx.Task{
+			{Name: "auth", Status: "blocked", BlockedReason: "stuck"},
+			{Name: "api", Status: "todo", DependsOn: ctx.FlexString{"auth"}},
+			{Name: "docs", Status: "todo"}, // no dependency — actionable
+		},
+	}
+	log := ctx.Log{Sessions: []ctx.Session{{Task: "auth", Outcome: "done"}}}
+
+	d := s.Evaluate(state, log, "")
+	if d.Action == ActionHalt {
+		t.Error("should not halt when an actionable task exists")
+	}
+}

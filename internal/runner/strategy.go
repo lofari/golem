@@ -127,7 +127,43 @@ func (s *Strategy) evaluateThrashing(log golemctx.Log) Decision {
 }
 
 func (s *Strategy) evaluateDeadlock(state golemctx.State) Decision {
-	return Decision{Action: ActionContinue}
+	doneSet := make(map[string]bool)
+	var remaining []golemctx.Task
+	for _, t := range state.Tasks {
+		if t.Status == "done" {
+			doneSet[t.Name] = true
+		} else {
+			remaining = append(remaining, t)
+		}
+	}
+
+	if len(remaining) == 0 {
+		return Decision{Action: ActionContinue}
+	}
+
+	for _, t := range remaining {
+		if t.Status == "blocked" {
+			continue
+		}
+		if t.DependsOn.IsEmpty() {
+			return Decision{Action: ActionContinue} // actionable
+		}
+		allDepsDone := true
+		for _, dep := range t.DependsOn {
+			if !doneSet[dep] {
+				allDepsDone = false
+				break
+			}
+		}
+		if allDepsDone {
+			return Decision{Action: ActionContinue} // actionable
+		}
+	}
+
+	return Decision{
+		Action:     ActionHalt,
+		HaltReason: "all remaining tasks are blocked or depend on blocked tasks",
+	}
 }
 
 // Suppress unused import warnings — these will be used by rule implementations.
