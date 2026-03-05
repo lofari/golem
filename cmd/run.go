@@ -12,6 +12,7 @@ import (
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 
+	"github.com/lofari/golem/internal/config"
 	"github.com/lofari/golem/internal/runner"
 	"github.com/lofari/golem/internal/scaffold"
 	"github.com/lofari/golem/internal/tui"
@@ -32,21 +33,59 @@ var runCmd = &cobra.Command{
 		ctx, stop := signal.NotifyContext(cmd.Context(), syscall.SIGINT, syscall.SIGTERM)
 		defer stop()
 
-		maxIter, _ := cmd.Flags().GetInt("max-iterations")
-		maxTurns, _ := cmd.Flags().GetInt("max-turns")
+		// Load config, then let flags override
+		globalPath := config.GlobalPath()
+		projectPath := config.ProjectPath(dir)
+		cfg := config.Load(globalPath, projectPath)
+
+		maxIter := cfg.MaxIterations
+		if cmd.Flags().Changed("max-iterations") {
+			maxIter, _ = cmd.Flags().GetInt("max-iterations")
+		}
+		maxTurns := cfg.MaxTurns
+		if cmd.Flags().Changed("max-turns") {
+			maxTurns, _ = cmd.Flags().GetInt("max-turns")
+		}
 		task, _ := cmd.Flags().GetString("task")
 		dryRun, _ := cmd.Flags().GetBool("dry-run")
-		verbose, _ := cmd.Flags().GetBool("verbose")
+		verbose := cfg.Verbose
+		if cmd.Flags().Changed("verbose") {
+			verbose, _ = cmd.Flags().GetBool("verbose")
+		}
 		review, _ := cmd.Flags().GetBool("review")
-		model, _ := cmd.Flags().GetString("model")
-		pluginDirs, _ := cmd.Flags().GetStringSlice("plugin-dir")
+		model := cfg.Model
+		if cmd.Flags().Changed("model") {
+			model, _ = cmd.Flags().GetString("model")
+		}
+		pluginDirs := cfg.PluginDir
+		if cmd.Flags().Changed("plugin-dir") {
+			pluginDirs, _ = cmd.Flags().GetStringSlice("plugin-dir")
+		}
 		noTUI, _ := cmd.Flags().GetBool("no-tui")
-		sandbox, _ := cmd.Flags().GetBool("sandbox")
-		sandboxTools, _ := cmd.Flags().GetStringSlice("sandbox-tools")
-		sandboxTimeout, _ := cmd.Flags().GetString("sandbox-timeout")
-		sandboxMemory, _ := cmd.Flags().GetString("sandbox-memory")
-		mcpEnabled, _ := cmd.Flags().GetBool("mcp")
-		parallel, _ := cmd.Flags().GetInt("parallel")
+		sandbox := cfg.Sandbox
+		if cmd.Flags().Changed("sandbox") {
+			sandbox, _ = cmd.Flags().GetBool("sandbox")
+		}
+		sandboxTools := cfg.SandboxTools
+		if cmd.Flags().Changed("sandbox-tools") {
+			sandboxTools, _ = cmd.Flags().GetStringSlice("sandbox-tools")
+		}
+		sandboxTimeout := cfg.SandboxTimeout
+		if cmd.Flags().Changed("sandbox-timeout") {
+			sandboxTimeout, _ = cmd.Flags().GetString("sandbox-timeout")
+		}
+		sandboxMemory := cfg.SandboxMemory
+		if cmd.Flags().Changed("sandbox-memory") {
+			sandboxMemory, _ = cmd.Flags().GetString("sandbox-memory")
+		}
+		mcpEnabled := cfg.MCP
+		if cmd.Flags().Changed("mcp") {
+			mcpEnabled, _ = cmd.Flags().GetBool("mcp")
+		}
+		parallel := cfg.Parallel
+		if cmd.Flags().Changed("parallel") {
+			parallel, _ = cmd.Flags().GetInt("parallel")
+		}
 
 		useTUI := !noTUI && !dryRun && term.IsTerminal(int(os.Stdout.Fd()))
 
@@ -150,7 +189,7 @@ func runWithTUI(ctx context.Context, dir string, maxIter, maxTurns int, task str
 func init() {
 	rootCmd.AddCommand(runCmd)
 	runCmd.Flags().Int("max-iterations", 20, "maximum number of iterations")
-	runCmd.Flags().Int("max-turns", 50, "max turns per Claude Code session")
+	runCmd.Flags().Int("max-turns", 200, "max turns per Claude Code session")
 	runCmd.Flags().String("task", "", "force agent to work on a specific task")
 	runCmd.Flags().Bool("dry-run", false, "show rendered prompt without executing")
 	runCmd.Flags().Bool("verbose", false, "extra output detail")

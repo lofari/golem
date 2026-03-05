@@ -1,4 +1,3 @@
-// cmd/plan.go
 package cmd
 
 import (
@@ -7,6 +6,8 @@ import (
 	"os/exec"
 
 	"github.com/spf13/cobra"
+
+	"github.com/lofari/golem/internal/config"
 	"github.com/lofari/golem/internal/scaffold"
 )
 
@@ -27,8 +28,19 @@ var planCmd = &cobra.Command{
 		fmt.Fprintln(os.Stderr, "golem: exit the session when planning is complete")
 		fmt.Fprintln(os.Stderr)
 
-		model, _ := cmd.Flags().GetString("model")
-		pluginDirs, _ := cmd.Flags().GetStringSlice("plugin-dir")
+		// Load config, then let flags override
+		globalPath := config.GlobalPath()
+		projectPath := config.ProjectPath(dir)
+		cfg := config.Load(globalPath, projectPath)
+
+		model := cfg.Model
+		if cmd.Flags().Changed("model") {
+			model, _ = cmd.Flags().GetString("model")
+		}
+		pluginDirs := cfg.PluginDir
+		if cmd.Flags().Changed("plugin-dir") {
+			pluginDirs, _ = cmd.Flags().GetStringSlice("plugin-dir")
+		}
 
 		claudeArgs := []string{}
 		if model != "" {
