@@ -1,8 +1,12 @@
 package config
 
 import (
+	"fmt"
+	"io"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -127,6 +131,95 @@ func merge(base Config, layer configLayer) Config {
 		base.Model = *layer.Model
 	}
 	return base
+}
+
+// SetValue reads an existing config file (or starts empty), sets one key, and writes back.
+func SetValue(path, key, value string) error {
+	existing := make(map[string]interface{})
+	if data, err := os.ReadFile(path); err == nil {
+		yaml.Unmarshal(data, &existing)
+	}
+
+	existing[key] = parseValue(value)
+
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		return err
+	}
+	data, err := yaml.Marshal(existing)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, data, 0644)
+}
+
+func parseValue(s string) interface{} {
+	if b, err := strconv.ParseBool(s); err == nil {
+		return b
+	}
+	if i, err := strconv.Atoi(s); err == nil {
+		return i
+	}
+	if strings.Contains(s, ",") {
+		return strings.Split(s, ",")
+	}
+	return s
+}
+
+// GetValue returns a string representation of a config field by key name.
+func GetValue(cfg Config, key string) (string, error) {
+	switch key {
+	case "max-iterations":
+		return strconv.Itoa(cfg.MaxIterations), nil
+	case "max-turns":
+		return strconv.Itoa(cfg.MaxTurns), nil
+	case "verbose":
+		return strconv.FormatBool(cfg.Verbose), nil
+	case "sandbox":
+		return strconv.FormatBool(cfg.Sandbox), nil
+	case "sandbox-tools":
+		return strings.Join(cfg.SandboxTools, ","), nil
+	case "sandbox-timeout":
+		return cfg.SandboxTimeout, nil
+	case "sandbox-memory":
+		return cfg.SandboxMemory, nil
+	case "mcp":
+		return strconv.FormatBool(cfg.MCP), nil
+	case "parallel":
+		return strconv.Itoa(cfg.Parallel), nil
+	case "plugin-dir":
+		return strings.Join(cfg.PluginDir, ","), nil
+	case "model":
+		return cfg.Model, nil
+	default:
+		return "", fmt.Errorf("unknown config key: %q", key)
+	}
+}
+
+// PrintConfig writes all config values to w.
+func PrintConfig(w io.Writer, cfg Config) {
+	fmt.Fprintf(w, "max-iterations: %d\n", cfg.MaxIterations)
+	fmt.Fprintf(w, "max-turns: %d\n", cfg.MaxTurns)
+	fmt.Fprintf(w, "verbose: %v\n", cfg.Verbose)
+	fmt.Fprintf(w, "sandbox: %v\n", cfg.Sandbox)
+	if len(cfg.SandboxTools) > 0 {
+		fmt.Fprintf(w, "sandbox-tools: %s\n", strings.Join(cfg.SandboxTools, ","))
+	}
+	if cfg.SandboxTimeout != "" {
+		fmt.Fprintf(w, "sandbox-timeout: %s\n", cfg.SandboxTimeout)
+	}
+	if cfg.SandboxMemory != "" {
+		fmt.Fprintf(w, "sandbox-memory: %s\n", cfg.SandboxMemory)
+	}
+	fmt.Fprintf(w, "mcp: %v\n", cfg.MCP)
+	fmt.Fprintf(w, "parallel: %d\n", cfg.Parallel)
+	if len(cfg.PluginDir) > 0 {
+		for _, d := range cfg.PluginDir {
+			fmt.Fprintf(w, "plugin-dir: %s\n", d)
+		}
+	}
+	if cfg.Model != "" {
+		fmt.Fprintf(w, "model: %s\n", cfg.Model)
+	}
 }
 
 // WriteFile writes a Config to a YAML file, creating parent directories as needed.
