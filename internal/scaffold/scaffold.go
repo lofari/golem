@@ -42,6 +42,7 @@ func Init(dir string, opts InitOptions) (InitResult, error) {
 		"log.yaml":         "log.yaml",
 		"prompt.md":        "prompt.md",
 		"review-prompt.md": "review-prompt.md",
+		"qa-prompt.md":     "qa-prompt.md",
 	}
 
 	for destName, tmplName := range templateFiles {

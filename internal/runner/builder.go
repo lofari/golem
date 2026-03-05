@@ -21,9 +21,10 @@ type BuilderConfig struct {
 	DryRun        bool
 	Verbose       bool
 	MCPEnabled    bool
-	Parallel      int // max parallel sessions (1 = sequential)
-	Runner        CommandRunner
-	Events        chan<- Event
+	Parallel       int // max parallel sessions (1 = sequential)
+	PromptTemplate string // prompt template filename (default: "prompt.md")
+	Runner         CommandRunner
+	Events         chan<- Event
 }
 
 func (cfg *BuilderConfig) emit(ev Event) {
@@ -96,7 +97,11 @@ Loop:
 		iterCtx := BuildIterationContext(i, cfg.MaxIterations, remaining)
 		taskOverride := BuildTaskOverride(cfg.TaskOverride)
 		reviewCtx := BuildReviewContext(state.Tasks)
-		prompt, err := RenderPrompt(cfg.Dir, "prompt.md", PromptVars{
+		templateFile := cfg.PromptTemplate
+		if templateFile == "" {
+			templateFile = "prompt.md"
+		}
+		prompt, err := RenderPrompt(cfg.Dir, templateFile, PromptVars{
 			DocsPath:         state.Project.DocsPath,
 			IterationContext: iterCtx,
 			TaskOverride:     taskOverride,

@@ -23,8 +23,8 @@ func TestInit(t *testing.T) {
 	}
 
 	// Check files created
-	if len(result.Created) != 4 {
-		t.Errorf("Created %d files, want 4: %v", len(result.Created), result.Created)
+	if len(result.Created) != 5 {
+		t.Errorf("Created %d files, want 5: %v", len(result.Created), result.Created)
 	}
 
 	// Check state.yaml was pre-filled
