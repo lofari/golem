@@ -46,10 +46,13 @@ golem init --name "MyProject" --stack "Go, React" --docs "docs/"
 golem plan
 
 # Run the autonomous builder loop
-golem run
+golem code
 
 # Review the result
 golem review
+
+# Run QA testing
+golem qa
 
 # Check status anytime
 golem status
@@ -57,12 +60,12 @@ golem status
 
 ### Permissions
 
-`golem run` and `golem review` pass `--dangerously-skip-permissions` to Claude Code, giving the agent unrestricted tool access. This is necessary because headless mode (`claude -p`) has no TTY to prompt for approval.
+`golem code` and `golem review` pass `--dangerously-skip-permissions` to Claude Code, giving the agent unrestricted tool access. This is necessary because headless mode (`claude -p`) has no TTY to prompt for approval.
 
 Use `--sandbox` to run Claude inside a [Warden](https://github.com/anthropics/warden) container, isolating filesystem and network access:
 
 ```bash
-golem run --sandbox
+golem code --sandbox
 golem review --sandbox
 ```
 
@@ -75,22 +78,50 @@ Without `--sandbox`, run golem in an isolated environment (Docker container, VM,
               |
           golem plan        <-- interactive: create design docs, populate tasks
               |
-          golem run         <-- autonomous: agent loops until all tasks done
+          golem code        <-- autonomous: agent loops until all tasks done
               |
           golem review      <-- autonomous: read-only code review
              / \
      APPROVED   NEEDS_WORK
         |           |
-      done      golem run   <-- agent fixes review issues, then re-review
+      done      golem code  <-- agent fixes review issues, then re-review
+                    |
+                golem qa     <-- autonomous: test user flows, report bugs
 ```
 
 ### AFK mode
 
 ```bash
-golem run --review
+golem code --review
 ```
 
 Runs the builder loop and automatically chains a review pass when done.
+
+## Configuration
+
+golem supports a two-layer config system. Settings are resolved in order: **defaults < global < project < flags**.
+
+```bash
+# Set global defaults
+golem config set --global max-turns 300
+golem config set --global sandbox true
+
+# Set project-specific overrides
+golem config set verbose true
+
+# View resolved config
+golem config list
+
+# Get a single value
+golem config get max-turns
+```
+
+| File | Scope |
+|------|-------|
+| `~/.config/golem/config.yaml` | Global defaults |
+| `.ctx/config.yaml` | Project overrides |
+
+Any flag passed on the command line overrides both config files.
 
 ## Commands
 
@@ -108,7 +139,7 @@ golem init --name "MyProject" --stack "Kotlin, Go" --docs "docs/plans/"
 | `--stack` | `""` | Tech stack |
 | `--docs` | `"docs/"` | Path to design/implementation docs |
 
-Creates: `.ctx/state.yaml`, `.ctx/log.yaml`, `.ctx/prompt.md`, `.ctx/review-prompt.md`, and a `CLAUDE.md` section.
+Creates: `.ctx/state.yaml`, `.ctx/log.yaml`, `.ctx/prompt.md`, `.ctx/review-prompt.md`, `.ctx/qa-prompt.md`, and a `CLAUDE.md` section.
 
 ### `golem plan`
 
@@ -119,32 +150,29 @@ golem plan
 golem plan --model opus
 ```
 
-### `golem run`
+### `golem code`
 
-The core loop. Spawns autonomous Claude Code iterations until all tasks are done or limits are reached.
+The core loop. Spawns autonomous Claude Code iterations until all tasks are done or limits are reached. Also available as `golem run` (alias).
 
 ```bash
-golem run
-golem run --max-iterations 10 --model sonnet
-golem run --task "WebSocket reconnection"
-golem run --dry-run
-golem run --review
+golem code
+golem code --max-iterations 10 --model sonnet
+golem code --task "WebSocket reconnection"
+golem code --dry-run
+golem code --review
 ```
 
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--max-iterations` | `20` | Maximum number of iterations |
-| `--max-turns` | `50` | Max turns per Claude Code session |
+| `--max-turns` | `200` | Max turns per Claude Code session |
 | `--task` | `""` | Force agent to work on a specific task |
 | `--dry-run` | `false` | Show rendered prompt without executing |
 | `--verbose` | `false` | Extra output detail |
 | `--review` | `false` | Chain a review pass after builder completes |
-| `--no-tui` | `false` | Disable terminal UI (plain text output) |
 | `--sandbox` | `false` | Run Claude inside a warden sandbox container |
 | `--mcp` | `true` | Enable golem MCP server for structured state updates |
 | `--parallel` | `1` | Max parallel task sessions (1 = sequential) |
-
-When a terminal is detected, `golem run` displays a live TUI with a split-pane layout: Claude output on the left, task list and stats on the right. Use `--no-tui` to fall back to plain text.
 
 Each iteration:
 1. Reads state and remaining tasks
@@ -166,14 +194,36 @@ golem review --model opus
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--max-turns` | `50` | Max turns for the review session |
+| `--max-turns` | `200` | Max turns for the review session |
 | `--sandbox` | `false` | Run Claude inside a warden sandbox container |
 
-The reviewer checks: plan alignment, implementation completeness, test quality, code quality, decision consistency, and pitfall awareness. Issues become `[review]` tasks that the builder picks up on the next `golem run`.
+The reviewer checks: plan alignment, implementation completeness, test quality, code quality, decision consistency, and pitfall awareness. Issues become `[review]` tasks that the builder picks up on the next `golem code`.
+
+### `golem qa`
+
+Autonomous QA testing. Spawns Claude Code as a QA tester that builds and runs the application, tests user flows from design docs, tries edge cases, and reports bugs as `[qa]` tasks.
+
+```bash
+golem qa
+golem qa --task "test auth flow"
+golem qa --sandbox
+```
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--max-iterations` | `20` | Maximum number of iterations |
+| `--max-turns` | `200` | Max turns per session |
+| `--task` | `""` | Force agent to test a specific area |
+| `--sandbox` | `false` | Run Claude inside a warden sandbox container |
 
 ### `golem status`
 
-Pretty-prints current project state. With a terminal, displays a live-watching TUI that polls for changes every 2 seconds. Use `--no-tui` for a one-shot plain text dump.
+Pretty-prints current project state. Use `--watch` to continuously refresh every 2 seconds.
+
+```bash
+golem status
+golem status --watch
+```
 
 ```
 Project: MyProject
@@ -190,6 +240,17 @@ Decisions: 4 recorded
 Pitfalls: 3 noted
 Locked paths: 2
 Sessions: 7 logged
+```
+
+### `golem config`
+
+Manage golem configuration.
+
+```bash
+golem config set max-turns 300          # set in project config
+golem config set --global sandbox true  # set in global config
+golem config get max-turns              # show resolved value
+golem config list                       # show all resolved values
 ```
 
 ### `golem log`
@@ -253,9 +314,9 @@ golem block "shipping integration" "external API schema pending"
 | `--version` | Print version |
 
 ```bash
-golem --model opus run --max-iterations 10
+golem --model opus code --max-iterations 10
 golem --model sonnet review
-golem --plugin-dir ~/my-plugin run
+golem --plugin-dir ~/my-plugin code
 ```
 
 ### Using with golem-superpowers
@@ -263,7 +324,7 @@ golem --plugin-dir ~/my-plugin run
 [golem-superpowers](https://github.com/lofari/golem-superpowers) is a companion Claude Code plugin that adds workflow skills (TDD, debugging, planning) tuned for golem iterations. Load it via `--plugin-dir`:
 
 ```bash
-golem --plugin-dir ~/projects/golem-superpowers run
+golem --plugin-dir ~/projects/golem-superpowers code
 ```
 
 If the agent has both `superpowers` and `golem-superpowers` installed, it will prefer the golem-aware variants automatically.
@@ -275,8 +336,10 @@ your-project/
 ├── .ctx/
 │   ├── state.yaml          # Current state (tasks, decisions, locks, pitfalls)
 │   ├── log.yaml            # Append-only session history
+│   ├── config.yaml         # Project-specific config overrides
 │   ├── prompt.md           # Builder prompt template (customizable)
 │   ├── review-prompt.md    # Review prompt template (customizable)
+│   ├── qa-prompt.md        # QA prompt template (customizable)
 │   ├── snapshots/          # Auto-managed state snapshots for rollback
 │   ├── sessions/           # Raw session output from each iteration
 │   └── mcp_servers.json    # Auto-generated MCP config (when --mcp is enabled)
@@ -351,7 +414,7 @@ Templates in `.ctx/` are customizable. They use three variables:
 | `{{ITERATION_CONTEXT}}` | Auto-generated: "Iteration X of Y, Z tasks remaining" |
 | `{{TASK_OVERRIDE}}` | Injected when `--task` flag is used |
 
-Edit `.ctx/prompt.md` or `.ctx/review-prompt.md` to customize agent behavior.
+Edit `.ctx/prompt.md`, `.ctx/review-prompt.md`, or `.ctx/qa-prompt.md` to customize agent behavior.
 
 ## MCP Server
 
@@ -385,7 +448,7 @@ This provides resilience against agent errors without losing progress.
 With `--parallel N` (where N > 1), golem can run multiple tasks concurrently using git worktrees:
 
 ```bash
-golem run --parallel 3
+golem code --parallel 3
 ```
 
 Each parallel iteration:
