@@ -2,7 +2,6 @@ package runner
 
 import (
 	"fmt"
-	"strings"
 
 	golemctx "github.com/lofari/golem/internal/ctx"
 )
@@ -214,7 +213,3 @@ func (s *Strategy) evaluateDeadlock(state golemctx.State) Decision {
 		HaltReason: "all remaining tasks are blocked or depend on blocked tasks",
 	}
 }
-
-// Suppress unused import warnings — these will be used by rule implementations.
-var _ = fmt.Sprintf
-var _ = strings.Contains
