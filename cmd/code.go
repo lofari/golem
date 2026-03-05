@@ -13,9 +13,10 @@ import (
 	"github.com/lofari/golem/internal/scaffold"
 )
 
-var runCmd = &cobra.Command{
-	Use:   "run",
-	Short: "Run the autonomous builder loop",
+var codeCmd = &cobra.Command{
+	Use:     "code",
+	Aliases: []string{"run"},
+	Short:   "Run the autonomous builder loop",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		dir, err := os.Getwd()
 		if err != nil {
@@ -122,17 +123,17 @@ var runCmd = &cobra.Command{
 }
 
 func init() {
-	rootCmd.AddCommand(runCmd)
-	runCmd.Flags().Int("max-iterations", 20, "maximum number of iterations")
-	runCmd.Flags().Int("max-turns", 200, "max turns per Claude Code session")
-	runCmd.Flags().String("task", "", "force agent to work on a specific task")
-	runCmd.Flags().Bool("dry-run", false, "show rendered prompt without executing")
-	runCmd.Flags().Bool("verbose", false, "extra output detail")
-	runCmd.Flags().Bool("review", false, "run review pass after builder completes")
-	runCmd.Flags().Bool("sandbox", false, "run Claude inside a warden sandbox container")
-	runCmd.Flags().StringSlice("sandbox-tools", nil, "additional warden tools for sandbox (e.g., go,node,python)")
-	runCmd.Flags().String("sandbox-timeout", "", "sandbox execution timeout (e.g., 2h, 30m)")
-	runCmd.Flags().String("sandbox-memory", "", "sandbox memory limit (e.g., 8g)")
-	runCmd.Flags().Bool("mcp", true, "enable golem MCP server for structured state updates")
-	runCmd.Flags().Int("parallel", 1, "max parallel task sessions (1 = sequential)")
+	rootCmd.AddCommand(codeCmd)
+	codeCmd.Flags().Int("max-iterations", 20, "maximum number of iterations")
+	codeCmd.Flags().Int("max-turns", 200, "max turns per Claude Code session")
+	codeCmd.Flags().String("task", "", "force agent to work on a specific task")
+	codeCmd.Flags().Bool("dry-run", false, "show rendered prompt without executing")
+	codeCmd.Flags().Bool("verbose", false, "extra output detail")
+	codeCmd.Flags().Bool("review", false, "run review pass after builder completes")
+	codeCmd.Flags().Bool("sandbox", false, "run Claude inside a warden sandbox container")
+	codeCmd.Flags().StringSlice("sandbox-tools", nil, "additional warden tools for sandbox (e.g., go,node,python)")
+	codeCmd.Flags().String("sandbox-timeout", "", "sandbox execution timeout (e.g., 2h, 30m)")
+	codeCmd.Flags().String("sandbox-memory", "", "sandbox memory limit (e.g., 8g)")
+	codeCmd.Flags().Bool("mcp", true, "enable golem MCP server for structured state updates")
+	codeCmd.Flags().Int("parallel", 1, "max parallel task sessions (1 = sequential)")
 }
