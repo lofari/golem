@@ -1,21 +1,16 @@
-// cmd/run.go
 package cmd
 
 import (
-	"context"
 	"fmt"
 	"os"
 	"os/signal"
 	"syscall"
 
-	tea "github.com/charmbracelet/bubbletea"
 	"github.com/spf13/cobra"
-	"golang.org/x/term"
 
 	"github.com/lofari/golem/internal/config"
 	"github.com/lofari/golem/internal/runner"
 	"github.com/lofari/golem/internal/scaffold"
-	"github.com/lofari/golem/internal/tui"
 )
 
 var runCmd = &cobra.Command{
@@ -61,7 +56,6 @@ var runCmd = &cobra.Command{
 		if cmd.Flags().Changed("plugin-dir") {
 			pluginDirs, _ = cmd.Flags().GetStringSlice("plugin-dir")
 		}
-		noTUI, _ := cmd.Flags().GetBool("no-tui")
 		sandbox := cfg.Sandbox
 		if cmd.Flags().Changed("sandbox") {
 			sandbox, _ = cmd.Flags().GetBool("sandbox")
@@ -87,78 +81,15 @@ var runCmd = &cobra.Command{
 			parallel, _ = cmd.Flags().GetInt("parallel")
 		}
 
-		useTUI := !noTUI && !dryRun && term.IsTerminal(int(os.Stdout.Fd()))
-
-		if useTUI {
-			return runWithTUI(ctx, dir, maxIter, maxTurns, task, verbose, review, model, pluginDirs, sandbox, sandboxTools, sandboxTimeout, sandboxMemory, mcpEnabled, parallel)
+		claudeRunner := &runner.ClaudeRunner{
+			Verbose:        verbose,
+			StreamJSON:     true,
+			PluginDirs:     pluginDirs,
+			Sandbox:        sandbox,
+			SandboxTools:   sandboxTools,
+			SandboxTimeout: sandboxTimeout,
+			SandboxMemory:  sandboxMemory,
 		}
-
-		return runWithoutTUI(ctx, dir, maxIter, maxTurns, task, dryRun, verbose, review, model, pluginDirs, sandbox, sandboxTools, sandboxTimeout, sandboxMemory, mcpEnabled, parallel)
-	},
-}
-
-func runWithoutTUI(ctx context.Context, dir string, maxIter, maxTurns int, task string, dryRun, verbose, review bool, model string, pluginDirs []string, sandbox bool, sandboxTools []string, sandboxTimeout, sandboxMemory string, mcpEnabled bool, parallel int) error {
-	claudeRunner := &runner.ClaudeRunner{
-		Verbose:        verbose,
-		StreamJSON:     true,
-		PluginDirs:     pluginDirs,
-		Sandbox:        sandbox,
-		SandboxTools:   sandboxTools,
-		SandboxTimeout: sandboxTimeout,
-		SandboxMemory:  sandboxMemory,
-	}
-
-	result, err := runner.RunBuilderLoop(ctx, runner.BuilderConfig{
-		Dir:           dir,
-		MaxIterations: maxIter,
-		MaxTurns:      maxTurns,
-		Model:         model,
-		TaskOverride:  task,
-		DryRun:        dryRun,
-		Verbose:       verbose,
-		MCPEnabled:    mcpEnabled,
-		Parallel:      parallel,
-		Runner:        claudeRunner,
-	})
-	if err != nil {
-		return err
-	}
-
-	if result.Halted {
-		return fmt.Errorf("loop halted: %s", result.HaltReason)
-	}
-
-	if review {
-		fmt.Fprintln(os.Stderr, "\ngolem: chaining review pass...")
-		_, err := runner.RunReview(ctx, dir, maxTurns, model, claudeRunner)
-		return err
-	}
-
-	return nil
-}
-
-func runWithTUI(ctx context.Context, dir string, maxIter, maxTurns int, task string, verbose, review bool, model string, pluginDirs []string, sandbox bool, sandboxTools []string, sandboxTimeout, sandboxMemory string, mcpEnabled bool, parallel int) error {
-	events := make(chan runner.Event, 100)
-	outputCh := make(chan string, 1000)
-
-	outputWriter := tui.NewLineWriter(outputCh)
-	claudeRunner := &runner.ClaudeRunner{
-		Verbose:        verbose,
-		StreamJSON:     true,
-		Sandbox:        sandbox,
-		SandboxTools:   sandboxTools,
-		SandboxTimeout: sandboxTimeout,
-		SandboxMemory:  sandboxMemory,
-		PluginDirs:     pluginDirs,
-		OutputWriter:   outputWriter,
-		ErrWriter:      outputWriter,
-	}
-
-	// Run builder loop in background goroutine
-	go func() {
-		defer close(outputCh)
-		defer close(events)
-		defer outputWriter.Flush()
 
 		result, err := runner.RunBuilderLoop(ctx, runner.BuilderConfig{
 			Dir:           dir,
@@ -166,24 +97,28 @@ func runWithTUI(ctx context.Context, dir string, maxIter, maxTurns int, task str
 			MaxTurns:      maxTurns,
 			Model:         model,
 			TaskOverride:  task,
+			DryRun:        dryRun,
 			Verbose:       verbose,
 			MCPEnabled:    mcpEnabled,
 			Parallel:      parallel,
 			Runner:        claudeRunner,
-			Events:        events,
 		})
-		_ = result
-		_ = err
-		// EventLoopDone is emitted inside RunBuilderLoop
-	}()
+		if err != nil {
+			return err
+		}
 
-	m := tui.NewRunModel(dir, events, outputCh)
-	p := tea.NewProgram(m, tea.WithAltScreen())
-	if _, err := p.Run(); err != nil {
-		return fmt.Errorf("TUI error: %w", err)
-	}
+		if result.Halted {
+			return fmt.Errorf("loop halted: %s", result.HaltReason)
+		}
 
-	return nil
+		if review {
+			fmt.Fprintln(os.Stderr, "\ngolem: chaining review pass...")
+			_, err := runner.RunReview(ctx, dir, maxTurns, model, claudeRunner)
+			return err
+		}
+
+		return nil
+	},
 }
 
 func init() {
@@ -194,7 +129,6 @@ func init() {
 	runCmd.Flags().Bool("dry-run", false, "show rendered prompt without executing")
 	runCmd.Flags().Bool("verbose", false, "extra output detail")
 	runCmd.Flags().Bool("review", false, "run review pass after builder completes")
-	runCmd.Flags().Bool("no-tui", false, "disable terminal UI (plain text output)")
 	runCmd.Flags().Bool("sandbox", false, "run Claude inside a warden sandbox container")
 	runCmd.Flags().StringSlice("sandbox-tools", nil, "additional warden tools for sandbox (e.g., go,node,python)")
 	runCmd.Flags().String("sandbox-timeout", "", "sandbox execution timeout (e.g., 2h, 30m)")

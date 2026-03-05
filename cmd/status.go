@@ -1,18 +1,17 @@
-// cmd/status.go
 package cmd
 
 import (
 	"fmt"
 	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
 	"github.com/spf13/cobra"
-	"golang.org/x/term"
 
 	"github.com/lofari/golem/internal/ctx"
 	"github.com/lofari/golem/internal/display"
 	"github.com/lofari/golem/internal/scaffold"
-	"github.com/lofari/golem/internal/tui"
 )
 
 var statusCmd = &cobra.Command{
@@ -27,33 +26,50 @@ var statusCmd = &cobra.Command{
 			return fmt.Errorf(".ctx/ not found — run `golem init` first")
 		}
 
-		noTUI, _ := cmd.Flags().GetBool("no-tui")
-		useTUI := !noTUI && term.IsTerminal(int(os.Stdout.Fd()))
-
-		if useTUI {
-			m := tui.NewStatusModel(dir)
-			p := tea.NewProgram(m, tea.WithAltScreen())
-			if _, err := p.Run(); err != nil {
-				return fmt.Errorf("TUI error: %w", err)
-			}
-			return nil
+		watch, _ := cmd.Flags().GetBool("watch")
+		if watch {
+			return watchStatus(dir)
 		}
 
-		// Plain text fallback
-		state, err := ctx.ReadState(dir)
-		if err != nil {
-			return err
-		}
-		log, err := ctx.ReadLog(dir)
-		if err != nil {
-			return err
-		}
-		display.PrintStatus(os.Stdout, state, len(log.Sessions))
-		return nil
+		return printStatusOnce(dir)
 	},
+}
+
+func watchStatus(dir string) error {
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+
+	// Print once immediately
+	printStatusOnce(dir)
+
+	for {
+		select {
+		case <-sigCh:
+			return nil
+		case <-ticker.C:
+			fmt.Print("\033[H\033[2J")
+			printStatusOnce(dir)
+		}
+	}
+}
+
+func printStatusOnce(dir string) error {
+	state, err := ctx.ReadState(dir)
+	if err != nil {
+		return err
+	}
+	log, err := ctx.ReadLog(dir)
+	if err != nil {
+		return err
+	}
+	display.PrintStatus(os.Stdout, state, len(log.Sessions))
+	return nil
 }
 
 func init() {
 	rootCmd.AddCommand(statusCmd)
-	statusCmd.Flags().Bool("no-tui", false, "disable terminal UI (plain text output)")
+	statusCmd.Flags().Bool("watch", false, "continuously refresh status every 2 seconds")
 }
