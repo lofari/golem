@@ -123,7 +123,27 @@ func (s *Strategy) evaluateFailure(last golemctx.Session, log golemctx.Log) Deci
 }
 
 func (s *Strategy) evaluateThrashing(log golemctx.Log) Decision {
-	return Decision{Action: ActionContinue}
+	if len(log.Sessions) < 3 {
+		return Decision{Action: ActionContinue}
+	}
+
+	last3 := log.Sessions[len(log.Sessions)-3:]
+	task := last3[0].Task
+	if task == "" {
+		return Decision{Action: ActionContinue}
+	}
+	if last3[1].Task != task || last3[2].Task != task {
+		return Decision{Action: ActionContinue}
+	}
+
+	return Decision{
+		Action:    ActionSkip,
+		SkipTasks: []string{task},
+		InjectContext: fmt.Sprintf(
+			"## Strategy Override\nTask %q has been attempted for 3 consecutive iterations without completion. It will be skipped. Work on a different task.\n",
+			task,
+		),
+	}
 }
 
 func (s *Strategy) evaluateDeadlock(state golemctx.State) Decision {

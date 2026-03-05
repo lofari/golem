@@ -134,3 +134,42 @@ func TestStrategy_NoDeadlockWhenActionable(t *testing.T) {
 		t.Error("should not halt when an actionable task exists")
 	}
 }
+
+func TestStrategy_ThrashingSkips(t *testing.T) {
+	s := NewStrategy()
+	state := ctx.State{
+		Project: ctx.Project{Name: "test"},
+		Tasks:   []ctx.Task{{Name: "payment", Status: "in-progress"}},
+	}
+	log := ctx.Log{Sessions: []ctx.Session{
+		{Task: "payment", Outcome: "partial"},
+		{Task: "payment", Outcome: "partial"},
+		{Task: "payment", Outcome: "partial"},
+	}}
+
+	d := s.Evaluate(state, log, "")
+	if d.Action != ActionSkip {
+		t.Errorf("3 consecutive same task should skip, got %v", d.Action)
+	}
+	if len(d.SkipTasks) != 1 || d.SkipTasks[0] != "payment" {
+		t.Errorf("should skip 'payment', got %v", d.SkipTasks)
+	}
+}
+
+func TestStrategy_NoThrashingDifferentTasks(t *testing.T) {
+	s := NewStrategy()
+	state := ctx.State{
+		Project: ctx.Project{Name: "test"},
+		Tasks:   []ctx.Task{{Name: "a", Status: "todo"}, {Name: "b", Status: "todo"}},
+	}
+	log := ctx.Log{Sessions: []ctx.Session{
+		{Task: "a", Outcome: "partial"},
+		{Task: "b", Outcome: "partial"},
+		{Task: "a", Outcome: "partial"},
+	}}
+
+	d := s.Evaluate(state, log, "")
+	if d.Action == ActionSkip {
+		t.Error("different tasks should not trigger thrashing")
+	}
+}
