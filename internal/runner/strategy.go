@@ -77,8 +77,49 @@ func (s *Strategy) evaluateProgress(last golemctx.Session, sessionOutput string)
 	return Decision{Action: ActionContinue}
 }
 
+const maxTaskFailures = 2
+
+func isFailedOutcome(outcome string) bool {
+	return outcome == "blocked" || outcome == "unproductive"
+}
+
 func (s *Strategy) evaluateFailure(last golemctx.Session, log golemctx.Log) Decision {
-	return Decision{Action: ActionContinue}
+	if last.Task == "" {
+		return Decision{Action: ActionContinue}
+	}
+
+	// Reset on success
+	if !isFailedOutcome(last.Outcome) {
+		s.taskFailures[last.Task] = 0
+		return Decision{Action: ActionContinue}
+	}
+
+	s.taskFailures[last.Task]++
+	count := s.taskFailures[last.Task]
+
+	if count >= maxTaskFailures {
+		return Decision{
+			Action:    ActionSkip,
+			SkipTasks: []string{last.Task},
+			InjectContext: fmt.Sprintf(
+				"## Strategy Override\nTask %q has failed %d times and will be skipped. Work on a different task.\n",
+				last.Task, count,
+			),
+		}
+	}
+
+	// First failure — retry with context
+	summary := last.Summary
+	if summary == "" {
+		summary = last.Outcome
+	}
+	return Decision{
+		Action: ActionRetry,
+		InjectContext: fmt.Sprintf(
+			"## Previous Iteration Context\nThe previous iteration attempted task %q but did not complete it. Outcome: %s.\n\nSummary: %s\n\nTry a different approach.\n",
+			last.Task, last.Outcome, summary,
+		),
+	}
 }
 
 func (s *Strategy) evaluateThrashing(log golemctx.Log) Decision {
