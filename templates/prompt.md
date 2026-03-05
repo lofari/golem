@@ -4,6 +4,8 @@ All persistent state is in `.ctx/`.
 
 {{ITERATION_CONTEXT}}
 
+{{INJECTED_CONTEXT}}
+
 ## Start of Session
 1. Read all design and implementation docs in `{{DOCS_PATH}}` for project context.
 2. Read `.ctx/state.yaml` for current progress, decisions, and constraints.

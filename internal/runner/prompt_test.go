@@ -36,6 +36,30 @@ func TestRenderPrompt(t *testing.T) {
 	}
 }
 
+func TestRenderPrompt_InjectedContext(t *testing.T) {
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, ".ctx"), 0755)
+
+	tmpl := "{{INJECTED_CONTEXT}}{{ITERATION_CONTEXT}}\n{{TASK_OVERRIDE}}{{DOCS_PATH}}"
+	os.WriteFile(filepath.Join(dir, ".ctx", "prompt.md"), []byte(tmpl), 0644)
+
+	result, err := RenderPrompt(dir, "prompt.md", PromptVars{
+		DocsPath:         "docs/",
+		IterationContext: "Iter 1 of 5.",
+		InjectedContext:  "## Previous Iteration Context\nTask X failed.\n\n",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !strings.Contains(result, "## Previous Iteration Context") {
+		t.Error("InjectedContext not rendered")
+	}
+	if !strings.Contains(result, "Iter 1 of 5") {
+		t.Error("IterationContext missing after injection")
+	}
+}
+
 func TestBuildIterationContext(t *testing.T) {
 	// Not low on iterations
 	ctx := BuildIterationContext(3, 20, 8)
