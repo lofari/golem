@@ -173,3 +173,71 @@ func TestStrategy_NoThrashingDifferentTasks(t *testing.T) {
 		t.Error("different tasks should not trigger thrashing")
 	}
 }
+
+func TestStrategy_UnproductiveWarns(t *testing.T) {
+	s := NewStrategy()
+	state := ctx.State{
+		Project: ctx.Project{Name: "test"},
+		Tasks:   []ctx.Task{{Name: "task1", Status: "todo"}},
+	}
+	log := ctx.Log{Sessions: []ctx.Session{
+		{Task: "task1", Outcome: "unproductive"},
+		{Task: "task1", Outcome: "unproductive"},
+	}}
+
+	d := s.Evaluate(state, log, "")
+	// 2 unproductive — should inject context but not halt
+	if d.Action == ActionHalt {
+		t.Error("2 unproductive should not halt yet")
+	}
+	if d.InjectContext == "" {
+		t.Error("2 unproductive should inject warning context")
+	}
+}
+
+func TestStrategy_ThreeUnproductiveHalts(t *testing.T) {
+	s := NewStrategy()
+	state := ctx.State{
+		Project: ctx.Project{Name: "test"},
+		Tasks:   []ctx.Task{{Name: "task1", Status: "todo"}},
+	}
+
+	// Simulate 3 unproductive evaluations
+	for i := 0; i < 3; i++ {
+		log := ctx.Log{Sessions: []ctx.Session{
+			{Task: "task1", Outcome: "unproductive"},
+		}}
+		d := s.Evaluate(state, log, "")
+		if i < 2 && d.Action == ActionHalt {
+			t.Errorf("should not halt on unproductive iteration %d", i+1)
+		}
+		if i == 2 && d.Action != ActionHalt {
+			t.Errorf("should halt on 3rd unproductive iteration, got %v", d.Action)
+		}
+	}
+}
+
+func TestStrategy_ProductiveResetsUnproductive(t *testing.T) {
+	s := NewStrategy()
+	state := ctx.State{
+		Project: ctx.Project{Name: "test"},
+		Tasks:   []ctx.Task{{Name: "task1", Status: "todo"}},
+	}
+
+	// 2 unproductive
+	for i := 0; i < 2; i++ {
+		log := ctx.Log{Sessions: []ctx.Session{{Task: "task1", Outcome: "unproductive"}}}
+		s.Evaluate(state, log, "")
+	}
+
+	// Productive iteration
+	log := ctx.Log{Sessions: []ctx.Session{{Task: "task1", Outcome: "done"}}}
+	s.Evaluate(state, log, "")
+
+	// Next unproductive should be count 1 again, not halt
+	log2 := ctx.Log{Sessions: []ctx.Session{{Task: "task1", Outcome: "unproductive"}}}
+	d := s.Evaluate(state, log2, "")
+	if d.Action == ActionHalt {
+		t.Error("productive iteration should reset unproductive counter")
+	}
+}

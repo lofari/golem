@@ -73,7 +73,36 @@ func (s *Strategy) Evaluate(state golemctx.State, log golemctx.Log, sessionOutpu
 	return Decision{Action: ActionContinue}
 }
 
+const (
+	maxUnproductiveWarn = 2
+	maxUnproductiveHalt = 3
+)
+
 func (s *Strategy) evaluateProgress(last golemctx.Session, sessionOutput string) Decision {
+	if last.Outcome == "unproductive" {
+		s.unproductiveCount++
+	} else {
+		s.unproductiveCount = 0
+		return Decision{Action: ActionContinue}
+	}
+
+	if s.unproductiveCount >= maxUnproductiveHalt {
+		return Decision{
+			Action:     ActionHalt,
+			HaltReason: fmt.Sprintf("%d consecutive unproductive iterations", s.unproductiveCount),
+		}
+	}
+
+	if s.unproductiveCount >= maxUnproductiveWarn {
+		return Decision{
+			Action: ActionRetry,
+			InjectContext: fmt.Sprintf(
+				"## Warning\nThe last %d iterations produced no meaningful progress. Focus on making concrete, testable changes. If you are stuck, consider working on a different task.\n",
+				s.unproductiveCount,
+			),
+		}
+	}
+
 	return Decision{Action: ActionContinue}
 }
 
