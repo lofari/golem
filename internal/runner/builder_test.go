@@ -52,7 +52,7 @@ func TestBuilderLoop_CompletePromise(t *testing.T) {
 	result, err := RunBuilderLoop(context.Background(), BuilderConfig{
 		Dir:           dir,
 		MaxIterations: 5,
-		MaxTurns:      10,
+		MaxToolCalls:      10,
 		Runner:        mock,
 	})
 	if err != nil {
@@ -73,7 +73,7 @@ func TestBuilderLoop_MaxIterations(t *testing.T) {
 	result, err := RunBuilderLoop(context.Background(), BuilderConfig{
 		Dir:           dir,
 		MaxIterations: 3,
-		MaxTurns:      10,
+		MaxToolCalls:      10,
 		Runner:        mock,
 	})
 	if err != nil {
@@ -94,7 +94,7 @@ func TestBuilderLoop_DryRun(t *testing.T) {
 	result, err := RunBuilderLoop(context.Background(), BuilderConfig{
 		Dir:           dir,
 		MaxIterations: 1,
-		MaxTurns:      10,
+		MaxToolCalls:      10,
 		DryRun:        true,
 		Runner:        mock,
 	})
@@ -115,7 +115,7 @@ func TestBuilderLoop_EmitsEvents(t *testing.T) {
 	result, err := RunBuilderLoop(context.Background(), BuilderConfig{
 		Dir:           dir,
 		MaxIterations: 5,
-		MaxTurns:      10,
+		MaxToolCalls:      10,
 		Runner:        mock,
 		Events:        events,
 	})
@@ -156,7 +156,7 @@ func TestBuilderLoop_ContextCancellation(t *testing.T) {
 	result, err := RunBuilderLoop(ctx, BuilderConfig{
 		Dir:           dir,
 		MaxIterations: 5,
-		MaxTurns:      10,
+		MaxToolCalls:      10,
 		Runner:        mock,
 	})
 	if err != nil {

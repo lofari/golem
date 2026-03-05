@@ -19,7 +19,7 @@ type resolvedConfig struct {
 // addAgentFlags registers the common set of flags for agent commands (code, review, qa).
 func addAgentFlags(cmd *cobra.Command) {
 	cmd.Flags().Int("max-iterations", 20, "maximum number of iterations")
-	cmd.Flags().Int("max-turns", 200, "max turns per Claude Code session")
+	cmd.Flags().Int("max-tool-calls", 200, "max tool calls per Claude Code session")
 	cmd.Flags().String("task", "", "force agent to work on a specific task")
 	cmd.Flags().Bool("dry-run", false, "show rendered prompt without executing")
 	cmd.Flags().Bool("verbose", false, "extra output detail")
@@ -42,8 +42,8 @@ func resolveConfig(cmd *cobra.Command, dir string) resolvedConfig {
 	if cmd.Flags().Changed("max-iterations") {
 		cfg.MaxIterations, _ = cmd.Flags().GetInt("max-iterations")
 	}
-	if cmd.Flags().Changed("max-turns") {
-		cfg.MaxTurns, _ = cmd.Flags().GetInt("max-turns")
+	if cmd.Flags().Changed("max-tool-calls") {
+		cfg.MaxToolCalls, _ = cmd.Flags().GetInt("max-tool-calls")
 	}
 	if cmd.Flags().Changed("verbose") {
 		cfg.Verbose, _ = cmd.Flags().GetBool("verbose")

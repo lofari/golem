@@ -39,7 +39,7 @@ var reviewCmd = &cobra.Command{
 			}
 		}
 
-		_, err = runner.RunReview(ctx, dir, rc.MaxTurns, rc.Model, claudeRunner)
+		_, err = runner.RunReview(ctx, dir, rc.MaxToolCalls, rc.Model, claudeRunner)
 		return err
 	},
 }

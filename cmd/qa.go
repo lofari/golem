@@ -33,7 +33,7 @@ var qaCmd = &cobra.Command{
 		result, err := runner.RunBuilderLoop(ctx, runner.BuilderConfig{
 			Dir:            dir,
 			MaxIterations:  rc.MaxIterations,
-			MaxTurns:       rc.MaxTurns,
+			MaxToolCalls:       rc.MaxToolCalls,
 			Model:          rc.Model,
 			TaskOverride:   rc.Task,
 			DryRun:         rc.DryRun,

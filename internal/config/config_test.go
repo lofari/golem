@@ -11,8 +11,8 @@ func TestLoad_Defaults(t *testing.T) {
 	if cfg.MaxIterations != 20 {
 		t.Errorf("expected MaxIterations=20, got %d", cfg.MaxIterations)
 	}
-	if cfg.MaxTurns != 200 {
-		t.Errorf("expected MaxTurns=200, got %d", cfg.MaxTurns)
+	if cfg.MaxToolCalls != 200 {
+		t.Errorf("expected MaxToolCalls=200, got %d", cfg.MaxToolCalls)
 	}
 	if cfg.MCP != true {
 		t.Error("expected MCP=true")
@@ -25,14 +25,14 @@ func TestLoad_Defaults(t *testing.T) {
 func TestLoad_GlobalOverrides(t *testing.T) {
 	globalDir := t.TempDir()
 	globalFile := filepath.Join(globalDir, "config.yaml")
-	os.WriteFile(globalFile, []byte("verbose: true\nmax-turns: 300\nsandbox: true\n"), 0644)
+	os.WriteFile(globalFile, []byte("verbose: true\nmax-tool-calls: 300\nsandbox: true\n"), 0644)
 
 	cfg := Load(globalFile, "")
 	if !cfg.Verbose {
 		t.Error("expected Verbose=true from global config")
 	}
-	if cfg.MaxTurns != 300 {
-		t.Errorf("expected MaxTurns=300, got %d", cfg.MaxTurns)
+	if cfg.MaxToolCalls != 300 {
+		t.Errorf("expected MaxToolCalls=300, got %d", cfg.MaxToolCalls)
 	}
 	if !cfg.Sandbox {
 		t.Error("expected Sandbox=true from global config")

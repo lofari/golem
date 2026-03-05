@@ -151,7 +151,7 @@ func runInWorktree(ctx context.Context, cfg BuilderConfig, task golemctx.Task, i
 	}
 
 	// Run claude in the worktree directory
-	output, err := cfg.Runner.Run(ctx, wtDir, prompt, cfg.MaxTurns, cfg.Model)
+	output, err := cfg.Runner.Run(ctx, wtDir, prompt, cfg.MaxToolCalls, cfg.Model)
 	result.Output = output
 	if err != nil {
 		result.Err = err

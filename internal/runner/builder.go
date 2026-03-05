@@ -15,7 +15,7 @@ import (
 type BuilderConfig struct {
 	Dir           string
 	MaxIterations int
-	MaxTurns      int
+	MaxToolCalls      int
 	Model         string
 	TaskOverride  string
 	DryRun        bool
@@ -170,7 +170,7 @@ Loop:
 		stateBefore := state
 
 		// Spawn claude
-		output, err := cfg.Runner.Run(ctx, cfg.Dir, prompt, cfg.MaxTurns, cfg.Model)
+		output, err := cfg.Runner.Run(ctx, cfg.Dir, prompt, cfg.MaxToolCalls, cfg.Model)
 		iterDuration := time.Since(iterStart)
 
 		// Save raw session output (even on error — partial output aids debugging)

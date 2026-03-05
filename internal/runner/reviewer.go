@@ -24,7 +24,7 @@ const (
 	needsWorkPromise = "<promise>NEEDS_WORK</promise>"
 )
 
-func RunReview(ctx context.Context, dir string, maxTurns int, model string, runner CommandRunner) (ReviewResult, error) {
+func RunReview(ctx context.Context, dir string, maxToolCalls int, model string, runner CommandRunner) (ReviewResult, error) {
 	var result ReviewResult
 	startTime := time.Now()
 
@@ -45,7 +45,7 @@ func RunReview(ctx context.Context, dir string, maxTurns int, model string, runn
 
 	fmt.Fprintf(os.Stderr, "golem: starting review...\n")
 
-	output, err := runner.Run(ctx, dir, prompt, maxTurns, model)
+	output, err := runner.Run(ctx, dir, prompt, maxToolCalls, model)
 	result.Duration = time.Since(startTime)
 
 	// Save raw session output (even on error — partial output aids debugging)

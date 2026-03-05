@@ -34,7 +34,7 @@ var codeCmd = &cobra.Command{
 		result, err := runner.RunBuilderLoop(ctx, runner.BuilderConfig{
 			Dir:           dir,
 			MaxIterations: rc.MaxIterations,
-			MaxTurns:      rc.MaxTurns,
+			MaxToolCalls:      rc.MaxToolCalls,
 			Model:         rc.Model,
 			TaskOverride:  rc.Task,
 			DryRun:        rc.DryRun,
@@ -53,7 +53,7 @@ var codeCmd = &cobra.Command{
 
 		if rc.Review {
 			fmt.Fprintln(os.Stderr, "\ngolem: chaining review pass...")
-			_, err := runner.RunReview(ctx, dir, rc.MaxTurns, rc.Model, claudeRunner)
+			_, err := runner.RunReview(ctx, dir, rc.MaxToolCalls, rc.Model, claudeRunner)
 			return err
 		}
 

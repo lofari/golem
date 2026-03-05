@@ -14,7 +14,7 @@ import (
 // Config holds all golem configuration values.
 type Config struct {
 	MaxIterations  int      `yaml:"max-iterations"`
-	MaxTurns       int      `yaml:"max-turns"`
+	MaxToolCalls       int      `yaml:"max-tool-calls"`
 	Verbose        bool     `yaml:"verbose"`
 	Sandbox        bool     `yaml:"sandbox"`
 	SandboxTools   []string `yaml:"sandbox-tools"`
@@ -30,7 +30,7 @@ type Config struct {
 func Defaults() Config {
 	return Config{
 		MaxIterations: 20,
-		MaxTurns:      200,
+		MaxToolCalls:      200,
 		MCP:           true,
 		Parallel:      1,
 	}
@@ -74,7 +74,7 @@ func Load(globalPath, projectPath string) Config {
 // configLayer is used for partial YAML parsing where zero values mean "not set".
 type configLayer struct {
 	MaxIterations  *int     `yaml:"max-iterations"`
-	MaxTurns       *int     `yaml:"max-turns"`
+	MaxToolCalls       *int     `yaml:"max-tool-calls"`
 	Verbose        *bool    `yaml:"verbose"`
 	Sandbox        *bool    `yaml:"sandbox"`
 	SandboxTools   []string `yaml:"sandbox-tools"`
@@ -100,8 +100,8 @@ func merge(base Config, layer configLayer) Config {
 	if layer.MaxIterations != nil {
 		base.MaxIterations = *layer.MaxIterations
 	}
-	if layer.MaxTurns != nil {
-		base.MaxTurns = *layer.MaxTurns
+	if layer.MaxToolCalls != nil {
+		base.MaxToolCalls = *layer.MaxToolCalls
 	}
 	if layer.Verbose != nil {
 		base.Verbose = *layer.Verbose
@@ -170,8 +170,8 @@ func GetValue(cfg Config, key string) (string, error) {
 	switch key {
 	case "max-iterations":
 		return strconv.Itoa(cfg.MaxIterations), nil
-	case "max-turns":
-		return strconv.Itoa(cfg.MaxTurns), nil
+	case "max-tool-calls":
+		return strconv.Itoa(cfg.MaxToolCalls), nil
 	case "verbose":
 		return strconv.FormatBool(cfg.Verbose), nil
 	case "sandbox":
@@ -198,7 +198,7 @@ func GetValue(cfg Config, key string) (string, error) {
 // PrintConfig writes all config values to w.
 func PrintConfig(w io.Writer, cfg Config) {
 	fmt.Fprintf(w, "max-iterations: %d\n", cfg.MaxIterations)
-	fmt.Fprintf(w, "max-turns: %d\n", cfg.MaxTurns)
+	fmt.Fprintf(w, "max-turns: %d\n", cfg.MaxToolCalls)
 	fmt.Fprintf(w, "verbose: %v\n", cfg.Verbose)
 	fmt.Fprintf(w, "sandbox: %v\n", cfg.Sandbox)
 	if len(cfg.SandboxTools) > 0 {
@@ -219,6 +219,29 @@ func PrintConfig(w io.Writer, cfg Config) {
 	}
 	if cfg.Model != "" {
 		fmt.Fprintf(w, "model: %s\n", cfg.Model)
+	}
+}
+
+// KeyInfo describes a config key for the interactive wizard.
+type KeyInfo struct {
+	Key         string
+	Description string
+}
+
+// Keys returns all config keys with descriptions, in display order.
+func Keys() []KeyInfo {
+	return []KeyInfo{
+		{"max-iterations", "maximum number of builder iterations"},
+		{"max-tool-calls", "max tool calls per Claude Code session"},
+		{"verbose", "extra output detail (true/false)"},
+		{"model", "Claude model (sonnet, opus, haiku)"},
+		{"sandbox", "run Claude in warden sandbox (true/false)"},
+		{"sandbox-tools", "additional sandbox tools (comma-separated)"},
+		{"sandbox-timeout", "sandbox timeout (e.g., 2h, 30m)"},
+		{"sandbox-memory", "sandbox memory limit (e.g., 8g)"},
+		{"mcp", "enable golem MCP server (true/false)"},
+		{"parallel", "max parallel task sessions (1 = sequential)"},
+		{"plugin-dir", "plugin directories (comma-separated)"},
 	}
 }
 

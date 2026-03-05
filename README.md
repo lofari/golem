@@ -103,7 +103,7 @@ golem supports a two-layer config system. Settings are resolved in order: **defa
 
 ```bash
 # Set global defaults
-golem config set --global max-turns 300
+golem config set --global max-tool-calls 300
 golem config set --global sandbox true
 
 # Set project-specific overrides
@@ -113,7 +113,7 @@ golem config set verbose true
 golem config list
 
 # Get a single value
-golem config get max-turns
+golem config get max-tool-calls
 ```
 
 | File | Scope |
@@ -165,7 +165,7 @@ golem code --review
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--max-iterations` | `20` | Maximum number of iterations |
-| `--max-turns` | `200` | Max turns per Claude Code session |
+| `--max-tool-calls` | `200` | Max turns per Claude Code session |
 | `--task` | `""` | Force agent to work on a specific task |
 | `--dry-run` | `false` | Show rendered prompt without executing |
 | `--verbose` | `false` | Extra output detail |
@@ -194,7 +194,7 @@ golem review --model opus
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--max-turns` | `200` | Max turns for the review session |
+| `--max-tool-calls` | `200` | Max turns for the review session |
 | `--sandbox` | `false` | Run Claude inside a warden sandbox container |
 
 The reviewer checks: plan alignment, implementation completeness, test quality, code quality, decision consistency, and pitfall awareness. Issues become `[review]` tasks that the builder picks up on the next `golem code`.
@@ -212,7 +212,7 @@ golem qa --sandbox
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--max-iterations` | `20` | Maximum number of iterations |
-| `--max-turns` | `200` | Max turns per session |
+| `--max-tool-calls` | `200` | Max turns per session |
 | `--task` | `""` | Force agent to test a specific area |
 | `--sandbox` | `false` | Run Claude inside a warden sandbox container |
 
@@ -247,9 +247,9 @@ Sessions: 7 logged
 Manage golem configuration.
 
 ```bash
-golem config set max-turns 300          # set in project config
+golem config set max-tool-calls 300          # set in project config
 golem config set --global sandbox true  # set in global config
-golem config get max-turns              # show resolved value
+golem config get max-tool-calls              # show resolved value
 golem config list                       # show all resolved values
 ```
 
