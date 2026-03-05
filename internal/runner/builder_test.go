@@ -146,6 +146,48 @@ func TestBuilderLoop_EmitsEvents(t *testing.T) {
 	}
 }
 
+func TestBuilderLoop_SkipsStuckTask(t *testing.T) {
+	dir := setupTestProject(t)
+
+	// Set up state with two tasks
+	state := golemctx.State{
+		Project: golemctx.Project{Name: "test", DocsPath: "docs/"},
+		Status:  golemctx.Status{Phase: "building"},
+		Tasks: []golemctx.Task{
+			{Name: "stuck-task", Status: "todo"},
+			{Name: "good-task", Status: "todo"},
+		},
+	}
+	golemctx.WriteState(dir, state)
+
+	// Pre-seed log with a failure on stuck-task (strategy will see this on each iteration)
+	golemctx.WriteLog(dir, golemctx.Log{Sessions: []golemctx.Session{
+		{Iteration: 1, Task: "stuck-task", Outcome: "blocked", Summary: "failed"},
+	}})
+
+	// Need 3 iterations: iter 1 → Retry (count=1), iter 2 → Skip (count=2), iter 3 → COMPLETE
+	mock := &mockRunner{outputs: []string{"partial", "partial", "done <promise>COMPLETE</promise>"}}
+
+	result, err := RunBuilderLoop(context.Background(), BuilderConfig{
+		Dir:           dir,
+		MaxIterations: 5,
+		MaxToolCalls:  10,
+		Runner:        mock,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Verify stuck-task was marked blocked
+	finalState, _ := golemctx.ReadState(dir)
+	for _, task := range finalState.Tasks {
+		if task.Name == "stuck-task" && task.Status != "blocked" {
+			t.Errorf("stuck-task should be blocked, got %q", task.Status)
+		}
+	}
+	_ = result
+}
+
 func TestBuilderLoop_ContextCancellation(t *testing.T) {
 	dir := setupTestProject(t)
 	mock := &mockRunner{outputs: []string{"partial"}}

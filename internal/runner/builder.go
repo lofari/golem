@@ -46,6 +46,8 @@ const completePromise = "<promise>COMPLETE</promise>"
 func RunBuilderLoop(ctx context.Context, cfg BuilderConfig) (BuilderResult, error) {
 	startTime := time.Now()
 	var result BuilderResult
+	strategy := NewStrategy()
+	var injectedContext string
 
 	state, err := golemctx.ReadState(cfg.Dir)
 	if err != nil {
@@ -106,7 +108,9 @@ Loop:
 			IterationContext: iterCtx,
 			TaskOverride:     taskOverride,
 			ReviewContext:    reviewCtx,
+			InjectedContext:  injectedContext,
 		})
+		injectedContext = "" // consumed
 		if err != nil {
 			result.Halted = true
 			result.HaltReason = fmt.Sprintf("rendering prompt: %v", err)
@@ -243,6 +247,33 @@ Loop:
 			cfg.emit(Event{Type: EventIterEnd, Iter: i, Task: lastSession.Task, Outcome: lastSession.Outcome})
 		} else {
 			cfg.emit(Event{Type: EventIterEnd, Iter: i})
+		}
+
+		// Strategy evaluation
+		decision := strategy.Evaluate(stateAfter, log, output)
+
+		for _, taskName := range decision.SkipTasks {
+			for j := range stateAfter.Tasks {
+				if stateAfter.Tasks[j].Name == taskName && stateAfter.Tasks[j].Status != "done" {
+					stateAfter.Tasks[j].Status = "blocked"
+					if stateAfter.Tasks[j].BlockedReason == "" {
+						stateAfter.Tasks[j].BlockedReason = "auto-skipped by strategy after repeated failures"
+					}
+					fmt.Fprintf(os.Stderr, "golem: strategy: skipping task %q (marking blocked)\n", taskName)
+				}
+			}
+			golemctx.WriteState(cfg.Dir, stateAfter)
+		}
+
+		switch decision.Action {
+		case ActionHalt:
+			result.Halted = true
+			result.HaltReason = "strategy: " + decision.HaltReason
+			result.Iterations = i
+			fmt.Fprintf(os.Stderr, "golem: strategy: halting — %s\n", decision.HaltReason)
+			break Loop
+		case ActionRetry, ActionSkip:
+			injectedContext = decision.InjectContext
 		}
 
 		result.Iterations = i
