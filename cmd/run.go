@@ -42,25 +42,31 @@ var runCmd = &cobra.Command{
 		pluginDirs, _ := cmd.Flags().GetStringSlice("plugin-dir")
 		noTUI, _ := cmd.Flags().GetBool("no-tui")
 		sandbox, _ := cmd.Flags().GetBool("sandbox")
+		sandboxTools, _ := cmd.Flags().GetStringSlice("sandbox-tools")
+		sandboxTimeout, _ := cmd.Flags().GetString("sandbox-timeout")
+		sandboxMemory, _ := cmd.Flags().GetString("sandbox-memory")
 		mcpEnabled, _ := cmd.Flags().GetBool("mcp")
 		parallel, _ := cmd.Flags().GetInt("parallel")
 
 		useTUI := !noTUI && !dryRun && term.IsTerminal(int(os.Stdout.Fd()))
 
 		if useTUI {
-			return runWithTUI(ctx, dir, maxIter, maxTurns, task, verbose, review, model, pluginDirs, sandbox, mcpEnabled, parallel)
+			return runWithTUI(ctx, dir, maxIter, maxTurns, task, verbose, review, model, pluginDirs, sandbox, sandboxTools, sandboxTimeout, sandboxMemory, mcpEnabled, parallel)
 		}
 
-		return runWithoutTUI(ctx, dir, maxIter, maxTurns, task, dryRun, verbose, review, model, pluginDirs, sandbox, mcpEnabled, parallel)
+		return runWithoutTUI(ctx, dir, maxIter, maxTurns, task, dryRun, verbose, review, model, pluginDirs, sandbox, sandboxTools, sandboxTimeout, sandboxMemory, mcpEnabled, parallel)
 	},
 }
 
-func runWithoutTUI(ctx context.Context, dir string, maxIter, maxTurns int, task string, dryRun, verbose, review bool, model string, pluginDirs []string, sandbox, mcpEnabled bool, parallel int) error {
+func runWithoutTUI(ctx context.Context, dir string, maxIter, maxTurns int, task string, dryRun, verbose, review bool, model string, pluginDirs []string, sandbox bool, sandboxTools []string, sandboxTimeout, sandboxMemory string, mcpEnabled bool, parallel int) error {
 	claudeRunner := &runner.ClaudeRunner{
-		Verbose:    verbose,
-		StreamJSON: sandbox, // stream-json flushes reliably through docker
-		PluginDirs: pluginDirs,
-		Sandbox:    sandbox,
+		Verbose:        verbose,
+		StreamJSON:     true,
+		PluginDirs:     pluginDirs,
+		Sandbox:        sandbox,
+		SandboxTools:   sandboxTools,
+		SandboxTimeout: sandboxTimeout,
+		SandboxMemory:  sandboxMemory,
 	}
 
 	result, err := runner.RunBuilderLoop(ctx, runner.BuilderConfig{
@@ -92,18 +98,21 @@ func runWithoutTUI(ctx context.Context, dir string, maxIter, maxTurns int, task 
 	return nil
 }
 
-func runWithTUI(ctx context.Context, dir string, maxIter, maxTurns int, task string, verbose, review bool, model string, pluginDirs []string, sandbox, mcpEnabled bool, parallel int) error {
+func runWithTUI(ctx context.Context, dir string, maxIter, maxTurns int, task string, verbose, review bool, model string, pluginDirs []string, sandbox bool, sandboxTools []string, sandboxTimeout, sandboxMemory string, mcpEnabled bool, parallel int) error {
 	events := make(chan runner.Event, 100)
 	outputCh := make(chan string, 1000)
 
 	outputWriter := tui.NewLineWriter(outputCh)
 	claudeRunner := &runner.ClaudeRunner{
-		Verbose:      verbose,
-		StreamJSON:   true,
-		Sandbox:      sandbox,
-		PluginDirs:   pluginDirs,
-		OutputWriter: outputWriter,
-		ErrWriter:    outputWriter,
+		Verbose:        verbose,
+		StreamJSON:     true,
+		Sandbox:        sandbox,
+		SandboxTools:   sandboxTools,
+		SandboxTimeout: sandboxTimeout,
+		SandboxMemory:  sandboxMemory,
+		PluginDirs:     pluginDirs,
+		OutputWriter:   outputWriter,
+		ErrWriter:      outputWriter,
 	}
 
 	// Run builder loop in background goroutine
@@ -148,6 +157,9 @@ func init() {
 	runCmd.Flags().Bool("review", false, "run review pass after builder completes")
 	runCmd.Flags().Bool("no-tui", false, "disable terminal UI (plain text output)")
 	runCmd.Flags().Bool("sandbox", false, "run Claude inside a warden sandbox container")
+	runCmd.Flags().StringSlice("sandbox-tools", nil, "additional warden tools for sandbox (e.g., go,node,python)")
+	runCmd.Flags().String("sandbox-timeout", "", "sandbox execution timeout (e.g., 2h, 30m)")
+	runCmd.Flags().String("sandbox-memory", "", "sandbox memory limit (e.g., 8g)")
 	runCmd.Flags().Bool("mcp", true, "enable golem MCP server for structured state updates")
 	runCmd.Flags().Int("parallel", 1, "max parallel task sessions (1 = sequential)")
 }

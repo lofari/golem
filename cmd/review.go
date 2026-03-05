@@ -32,12 +32,31 @@ var reviewCmd = &cobra.Command{
 		verbose, _ := cmd.Flags().GetBool("verbose")
 		pluginDirs, _ := cmd.Flags().GetStringSlice("plugin-dir")
 		sandbox, _ := cmd.Flags().GetBool("sandbox")
-		_, err = runner.RunReview(ctx, dir, maxTurns, model, &runner.ClaudeRunner{
-			Verbose:    verbose,
-			StreamJSON: sandbox, // stream-json flushes reliably through docker
-			PluginDirs: pluginDirs,
-			Sandbox:    sandbox,
-		})
+		sandboxTools, _ := cmd.Flags().GetStringSlice("sandbox-tools")
+		sandboxTimeout, _ := cmd.Flags().GetString("sandbox-timeout")
+		sandboxMemory, _ := cmd.Flags().GetString("sandbox-memory")
+		mcpEnabled, _ := cmd.Flags().GetBool("mcp")
+
+		claudeRunner := &runner.ClaudeRunner{
+			Verbose:        verbose,
+			StreamJSON:     true,
+			PluginDirs:     pluginDirs,
+			Sandbox:        sandbox,
+			SandboxTools:   sandboxTools,
+			SandboxTimeout: sandboxTimeout,
+			SandboxMemory:  sandboxMemory,
+		}
+
+		if mcpEnabled {
+			mcpPath, mcpErr := runner.WriteMCPConfig(dir)
+			if mcpErr != nil {
+				fmt.Fprintf(os.Stderr, "golem: warning: could not write MCP config: %v\n", mcpErr)
+			} else {
+				claudeRunner.MCPConfig = mcpPath
+			}
+		}
+
+		_, err = runner.RunReview(ctx, dir, maxTurns, model, claudeRunner)
 		return err
 	},
 }
@@ -47,4 +66,8 @@ func init() {
 	reviewCmd.Flags().Int("max-turns", 50, "max turns for the review session")
 	reviewCmd.Flags().Bool("verbose", false, "show Claude tool calls and thinking (stream-json)")
 	reviewCmd.Flags().Bool("sandbox", false, "run Claude inside a warden sandbox container")
+	reviewCmd.Flags().StringSlice("sandbox-tools", nil, "additional warden tools for sandbox (e.g., go,node,python)")
+	reviewCmd.Flags().String("sandbox-timeout", "", "sandbox execution timeout (e.g., 2h, 30m)")
+	reviewCmd.Flags().String("sandbox-memory", "", "sandbox memory limit (e.g., 8g)")
+	reviewCmd.Flags().Bool("mcp", true, "enable golem MCP server for structured state updates")
 }

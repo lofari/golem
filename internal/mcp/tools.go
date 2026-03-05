@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 	"syscall"
 	"time"
 
@@ -263,6 +264,52 @@ func (gs *GolemServer) handleAddLocked(_ context.Context, req mcp.CallToolReques
 	}
 
 	return mcp.NewToolResultText(fmt.Sprintf("locked: %s", path)), nil
+}
+
+func setStatusTool() mcp.Tool {
+	return mcp.Tool{
+		Name:        "set_status",
+		Description: "Update current_focus and/or last_session in state.yaml status section. Use this instead of editing state.yaml directly to avoid YAML quoting issues.",
+		InputSchema: mcp.ToolInputSchema{
+			Type: "object",
+			Properties: map[string]any{
+				"current_focus": map[string]string{"type": "string", "description": "What you are currently working on"},
+				"last_session":  map[string]string{"type": "string", "description": "Summary of what was done in this session"},
+			},
+		},
+	}
+}
+
+func (gs *GolemServer) handleSetStatus(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	args := req.GetArguments()
+	currentFocus := getStr(args, "current_focus")
+	lastSession := getStr(args, "last_session")
+
+	if currentFocus == "" && lastSession == "" {
+		return mcp.NewToolResultError("at least one of current_focus or last_session must be provided"), nil
+	}
+
+	err := gs.withStateLock(func(s golemctx.State) (golemctx.State, error) {
+		if currentFocus != "" {
+			s.Status.CurrentFocus = currentFocus
+		}
+		if lastSession != "" {
+			s.Status.LastSession = lastSession
+		}
+		return s, nil
+	})
+	if err != nil {
+		return mcp.NewToolResultError(err.Error()), nil
+	}
+
+	parts := []string{}
+	if currentFocus != "" {
+		parts = append(parts, fmt.Sprintf("current_focus=%q", currentFocus))
+	}
+	if lastSession != "" {
+		parts = append(parts, fmt.Sprintf("last_session=%q", lastSession))
+	}
+	return mcp.NewToolResultText(fmt.Sprintf("status updated: %s", strings.Join(parts, ", "))), nil
 }
 
 func logSessionTool() mcp.Tool {

@@ -111,3 +111,80 @@ func TestBuildCommand_SandboxWithPluginDirs(t *testing.T) {
 		t.Errorf("missing plugin dir mount, got: %s", joined)
 	}
 }
+
+func TestBuildCommand_SandboxWithExtraTools(t *testing.T) {
+	cr := &ClaudeRunner{
+		Sandbox:      true,
+		SandboxTools: []string{"go", "node"},
+	}
+	claudeArgs := []string{"-p", "hello"}
+
+	name, got := cr.buildCommand("/tmp/project", claudeArgs)
+
+	if name != "warden" {
+		t.Fatalf("expected command 'warden', got %q", name)
+	}
+
+	joined := strings.Join(got, " ")
+
+	// Tools should include claude plus extras
+	if !strings.Contains(joined, "--tools claude,go,node") {
+		t.Errorf("expected --tools claude,go,node, got: %s", joined)
+	}
+}
+
+func TestBuildCommand_SandboxDefaultToolsClaude(t *testing.T) {
+	cr := &ClaudeRunner{Sandbox: true}
+	claudeArgs := []string{"-p", "hello"}
+
+	_, got := cr.buildCommand("/tmp/project", claudeArgs)
+	joined := strings.Join(got, " ")
+
+	// Without extra tools, should just be "claude"
+	if !strings.Contains(joined, "--tools claude") {
+		t.Errorf("expected --tools claude, got: %s", joined)
+	}
+	// Should NOT have a trailing comma
+	if strings.Contains(joined, "--tools claude,") {
+		t.Errorf("unexpected trailing comma in tools: %s", joined)
+	}
+}
+
+func TestBuildCommand_SandboxTimeoutAndMemory(t *testing.T) {
+	cr := &ClaudeRunner{
+		Sandbox:        true,
+		SandboxTimeout: "2h",
+		SandboxMemory:  "8g",
+	}
+	claudeArgs := []string{"-p", "hello"}
+
+	name, got := cr.buildCommand("/tmp/project", claudeArgs)
+
+	if name != "warden" {
+		t.Fatalf("expected command 'warden', got %q", name)
+	}
+
+	joined := strings.Join(got, " ")
+
+	if !strings.Contains(joined, "--timeout 2h") {
+		t.Errorf("missing --timeout 2h, got: %s", joined)
+	}
+	if !strings.Contains(joined, "--memory 8g") {
+		t.Errorf("missing --memory 8g, got: %s", joined)
+	}
+}
+
+func TestBuildCommand_SandboxNoTimeoutMemoryWhenEmpty(t *testing.T) {
+	cr := &ClaudeRunner{Sandbox: true}
+	claudeArgs := []string{"-p", "hello"}
+
+	_, got := cr.buildCommand("/tmp/project", claudeArgs)
+	joined := strings.Join(got, " ")
+
+	if strings.Contains(joined, "--timeout") {
+		t.Errorf("should not include --timeout when empty, got: %s", joined)
+	}
+	if strings.Contains(joined, "--memory") {
+		t.Errorf("should not include --memory when empty, got: %s", joined)
+	}
+}

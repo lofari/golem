@@ -19,13 +19,16 @@ type CommandRunner interface {
 
 // ClaudeRunner is the production implementation that spawns `claude -p`.
 type ClaudeRunner struct {
-	Verbose      bool
-	StreamJSON   bool      // use --output-format stream-json and parse output for TUI
-	Sandbox      bool      // run Claude inside a warden sandbox container
-	PluginDirs   []string  // local plugin directories passed via --plugin-dir
-	MCPConfig    string    // path to mcp_servers.json (if set, passes --mcp-config)
-	OutputWriter io.Writer // display destination; defaults to os.Stdout
-	ErrWriter    io.Writer // stderr destination; defaults to os.Stderr
+	Verbose        bool
+	StreamJSON     bool      // use --output-format stream-json and parse output for TUI
+	Sandbox        bool      // run Claude inside a warden sandbox container
+	SandboxTools   []string  // additional warden tools beyond "claude" (e.g., "go", "node")
+	SandboxTimeout string    // warden --timeout value (e.g., "2h", "30m")
+	SandboxMemory  string    // warden --memory value (e.g., "8g")
+	PluginDirs     []string  // local plugin directories passed via --plugin-dir
+	MCPConfig      string    // path to mcp_servers.json (if set, passes --mcp-config)
+	OutputWriter   io.Writer // display destination; defaults to os.Stdout
+	ErrWriter      io.Writer // stderr destination; defaults to os.Stderr
 }
 
 func (c *ClaudeRunner) Run(ctx context.Context, dir string, prompt string, maxTurns int, model string) (string, error) {
@@ -114,11 +117,17 @@ func (c *ClaudeRunner) buildCommand(dir string, claudeArgs []string) (string, []
 		return "claude", claudeArgs
 	}
 
+	// Build tools list: always include "claude", plus any user-specified tools
+	tools := "claude"
+	if len(c.SandboxTools) > 0 {
+		tools = tools + "," + strings.Join(c.SandboxTools, ",")
+	}
+
 	homeDir, _ := os.UserHomeDir()
 	wardenArgs := []string{
 		"run",
 		"--network",
-		"--tools", "claude",
+		"--tools", tools,
 		"--workdir", dir,
 		"--env", "HOME=" + homeDir,
 		"--env", "CI=true",
@@ -126,12 +135,24 @@ func (c *ClaudeRunner) buildCommand(dir string, claudeArgs []string) (string, []
 		"--mount", homeDir + "/.claude.json:rw",
 		"--mount", dir + ":rw",
 	}
+	if c.SandboxTimeout != "" {
+		wardenArgs = append(wardenArgs, "--timeout", c.SandboxTimeout)
+	}
+	if c.SandboxMemory != "" {
+		wardenArgs = append(wardenArgs, "--memory", c.SandboxMemory)
+	}
 	for _, d := range c.PluginDirs {
 		abs, err := filepath.Abs(d)
 		if err == nil {
 			d = abs
 		}
 		wardenArgs = append(wardenArgs, "--mount", d+":ro")
+	}
+	// Mount golem binary so the MCP server can be spawned inside the sandbox
+	if c.MCPConfig != "" {
+		if golemBin, err := os.Executable(); err == nil {
+			wardenArgs = append(wardenArgs, "--mount", golemBin+":ro")
+		}
 	}
 	wardenArgs = append(wardenArgs, "--")
 	// Force line-buffered stdout so stream-json flows through docker without delay

@@ -32,7 +32,8 @@ Before exiting, use the golem MCP tools to update state:
 3. Call `add_decision` for any new architectural decisions.
 4. Call `add_pitfall` for any lessons learned.
 5. Call `add_locked` for any completed, tested modules that should not be modified.
-6. Call `log_session` with task name, outcome (done|partial|blocked|unproductive), summary, and files_changed.
+6. Call `set_status` to update current_focus and last_session.
+7. Call `log_session` with task name, outcome (done|partial|blocked|unproductive), summary, and files_changed.
 
 If the golem MCP tools are not available, fall back to editing `.ctx/state.yaml` and `.ctx/log.yaml` directly.
 Valid task statuses: `todo`, `in-progress`, `done`, `blocked`.

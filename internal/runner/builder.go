@@ -197,10 +197,22 @@ Loop:
 		// Post-iteration: re-read state and validate
 		stateAfter, readErr := golemctx.ReadState(cfg.Dir)
 		if readErr != nil {
-			result.Halted = true
-			result.HaltReason = fmt.Sprintf("state.yaml unreadable after iteration %d: %v", i, readErr)
-			result.Iterations = i
-			break
+			fmt.Fprintf(os.Stderr, "golem: state.yaml corrupt after iteration %d (%v), restoring snapshot...\n", i, readErr)
+			restored, restoreErr := RestoreLatestSnapshot(cfg.Dir)
+			if !restored || restoreErr != nil {
+				result.Halted = true
+				result.HaltReason = fmt.Sprintf("state.yaml unreadable after iteration %d (no snapshot to restore): %v", i, readErr)
+				result.Iterations = i
+				break
+			}
+			stateAfter, readErr = golemctx.ReadState(cfg.Dir)
+			if readErr != nil {
+				result.Halted = true
+				result.HaltReason = fmt.Sprintf("state.yaml still unreadable after snapshot restore: %v", readErr)
+				result.Iterations = i
+				break
+			}
+			fmt.Fprintf(os.Stderr, "golem: snapshot restored successfully, continuing\n")
 		}
 
 		log, _ := golemctx.ReadLog(cfg.Dir)
