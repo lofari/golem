@@ -8,7 +8,6 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/lofari/golem/internal/config"
 	"github.com/lofari/golem/internal/runner"
 	"github.com/lofari/golem/internal/scaffold"
 )
@@ -29,79 +28,19 @@ var codeCmd = &cobra.Command{
 		ctx, stop := signal.NotifyContext(cmd.Context(), syscall.SIGINT, syscall.SIGTERM)
 		defer stop()
 
-		// Load config, then let flags override
-		globalPath := config.GlobalPath()
-		projectPath := config.ProjectPath(dir)
-		cfg := config.Load(globalPath, projectPath)
-
-		maxIter := cfg.MaxIterations
-		if cmd.Flags().Changed("max-iterations") {
-			maxIter, _ = cmd.Flags().GetInt("max-iterations")
-		}
-		maxTurns := cfg.MaxTurns
-		if cmd.Flags().Changed("max-turns") {
-			maxTurns, _ = cmd.Flags().GetInt("max-turns")
-		}
-		task, _ := cmd.Flags().GetString("task")
-		dryRun, _ := cmd.Flags().GetBool("dry-run")
-		verbose := cfg.Verbose
-		if cmd.Flags().Changed("verbose") {
-			verbose, _ = cmd.Flags().GetBool("verbose")
-		}
-		review, _ := cmd.Flags().GetBool("review")
-		model := cfg.Model
-		if cmd.Flags().Changed("model") {
-			model, _ = cmd.Flags().GetString("model")
-		}
-		pluginDirs := cfg.PluginDir
-		if cmd.Flags().Changed("plugin-dir") {
-			pluginDirs, _ = cmd.Flags().GetStringSlice("plugin-dir")
-		}
-		sandbox := cfg.Sandbox
-		if cmd.Flags().Changed("sandbox") {
-			sandbox, _ = cmd.Flags().GetBool("sandbox")
-		}
-		sandboxTools := cfg.SandboxTools
-		if cmd.Flags().Changed("sandbox-tools") {
-			sandboxTools, _ = cmd.Flags().GetStringSlice("sandbox-tools")
-		}
-		sandboxTimeout := cfg.SandboxTimeout
-		if cmd.Flags().Changed("sandbox-timeout") {
-			sandboxTimeout, _ = cmd.Flags().GetString("sandbox-timeout")
-		}
-		sandboxMemory := cfg.SandboxMemory
-		if cmd.Flags().Changed("sandbox-memory") {
-			sandboxMemory, _ = cmd.Flags().GetString("sandbox-memory")
-		}
-		mcpEnabled := cfg.MCP
-		if cmd.Flags().Changed("mcp") {
-			mcpEnabled, _ = cmd.Flags().GetBool("mcp")
-		}
-		parallel := cfg.Parallel
-		if cmd.Flags().Changed("parallel") {
-			parallel, _ = cmd.Flags().GetInt("parallel")
-		}
-
-		claudeRunner := &runner.ClaudeRunner{
-			Verbose:        verbose,
-			StreamJSON:     true,
-			PluginDirs:     pluginDirs,
-			Sandbox:        sandbox,
-			SandboxTools:   sandboxTools,
-			SandboxTimeout: sandboxTimeout,
-			SandboxMemory:  sandboxMemory,
-		}
+		rc := resolveConfig(cmd, dir)
+		claudeRunner := newClaudeRunner(rc)
 
 		result, err := runner.RunBuilderLoop(ctx, runner.BuilderConfig{
 			Dir:           dir,
-			MaxIterations: maxIter,
-			MaxTurns:      maxTurns,
-			Model:         model,
-			TaskOverride:  task,
-			DryRun:        dryRun,
-			Verbose:       verbose,
-			MCPEnabled:    mcpEnabled,
-			Parallel:      parallel,
+			MaxIterations: rc.MaxIterations,
+			MaxTurns:      rc.MaxTurns,
+			Model:         rc.Model,
+			TaskOverride:  rc.Task,
+			DryRun:        rc.DryRun,
+			Verbose:       rc.Verbose,
+			MCPEnabled:    rc.MCP,
+			Parallel:      rc.Parallel,
 			Runner:        claudeRunner,
 		})
 		if err != nil {
@@ -112,9 +51,9 @@ var codeCmd = &cobra.Command{
 			return fmt.Errorf("loop halted: %s", result.HaltReason)
 		}
 
-		if review {
+		if rc.Review {
 			fmt.Fprintln(os.Stderr, "\ngolem: chaining review pass...")
-			_, err := runner.RunReview(ctx, dir, maxTurns, model, claudeRunner)
+			_, err := runner.RunReview(ctx, dir, rc.MaxTurns, rc.Model, claudeRunner)
 			return err
 		}
 
@@ -124,16 +63,7 @@ var codeCmd = &cobra.Command{
 
 func init() {
 	rootCmd.AddCommand(codeCmd)
-	codeCmd.Flags().Int("max-iterations", 20, "maximum number of iterations")
-	codeCmd.Flags().Int("max-turns", 200, "max turns per Claude Code session")
-	codeCmd.Flags().String("task", "", "force agent to work on a specific task")
-	codeCmd.Flags().Bool("dry-run", false, "show rendered prompt without executing")
-	codeCmd.Flags().Bool("verbose", false, "extra output detail")
+	addAgentFlags(codeCmd)
 	codeCmd.Flags().Bool("review", false, "run review pass after builder completes")
-	codeCmd.Flags().Bool("sandbox", false, "run Claude inside a warden sandbox container")
-	codeCmd.Flags().StringSlice("sandbox-tools", nil, "additional warden tools for sandbox (e.g., go,node,python)")
-	codeCmd.Flags().String("sandbox-timeout", "", "sandbox execution timeout (e.g., 2h, 30m)")
-	codeCmd.Flags().String("sandbox-memory", "", "sandbox memory limit (e.g., 8g)")
-	codeCmd.Flags().Bool("mcp", true, "enable golem MCP server for structured state updates")
 	codeCmd.Flags().Int("parallel", 1, "max parallel task sessions (1 = sequential)")
 }
