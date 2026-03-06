@@ -4,6 +4,7 @@ package ctx
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -104,5 +105,50 @@ func TestFailedSessions(t *testing.T) {
 	}
 	if got[1].Iteration != 4 {
 		t.Errorf("got[1].Iteration = %d, want 4", got[1].Iteration)
+	}
+}
+
+func TestHandoffRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, ".ctx"), 0755)
+
+	original := Log{
+		Sessions: []Session{
+			{
+				Iteration: 1,
+				Task:      "auth",
+				Outcome:   "partial",
+				Summary:   "started OAuth2",
+				Handoff:   "OAuth2 provider configured. Next: implement callback handler in auth.go:45. Watch out — redirect URI must match exactly.",
+			},
+		},
+	}
+
+	if err := WriteLog(dir, original); err != nil {
+		t.Fatalf("WriteLog: %v", err)
+	}
+
+	got, err := ReadLog(dir)
+	if err != nil {
+		t.Fatalf("ReadLog: %v", err)
+	}
+
+	if got.Sessions[0].Handoff != original.Sessions[0].Handoff {
+		t.Errorf("Handoff = %q, want %q", got.Sessions[0].Handoff, original.Sessions[0].Handoff)
+	}
+}
+
+func TestHandoffOmittedWhenEmpty(t *testing.T) {
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, ".ctx"), 0755)
+
+	l := Log{Sessions: []Session{{Iteration: 1, Task: "x", Outcome: "done", Summary: "done"}}}
+	if err := WriteLog(dir, l); err != nil {
+		t.Fatal(err)
+	}
+
+	data, _ := os.ReadFile(filepath.Join(dir, ".ctx", "log.yaml"))
+	if strings.Contains(string(data), "handoff") {
+		t.Error("empty handoff should be omitted from YAML")
 	}
 }
