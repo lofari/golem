@@ -180,8 +180,9 @@ Each iteration:
 3. Renders prompt template with iteration context
 4. Spawns `claude -p` with the rendered prompt (and MCP server if enabled)
 5. Checks for `<promise>COMPLETE</promise>` in output
-6. Validates post-iteration (schema, locked paths, regressions, thrashing)
-7. Prints summary and continues
+6. Evaluates strategy rules (failure, deadlock, thrashing, progress)
+7. Validates post-iteration (schema, locked paths, regressions)
+8. Prints summary and continues
 
 ### `golem review`
 
@@ -412,6 +413,7 @@ Templates in `.ctx/` are customizable. They use three variables:
 |----------|-------------|
 | `{{DOCS_PATH}}` | Path to design docs (from `state.yaml`) |
 | `{{ITERATION_CONTEXT}}` | Auto-generated: "Iteration X of Y, Z tasks remaining" |
+| `{{INJECTED_CONTEXT}}` | Strategy-injected guidance (retry hints, warnings) — empty when not needed |
 | `{{TASK_OVERRIDE}}` | Injected when `--task` flag is used |
 
 Edit `.ctx/prompt.md`, `.ctx/review-prompt.md`, or `.ctx/qa-prompt.md` to customize agent behavior.
@@ -463,7 +465,22 @@ Parallel execution requires the project to be a git repository. Tasks with unres
 
 ## Safety
 
-golem runs post-iteration validation after every builder iteration:
+golem runs adaptive strategy evaluation and post-iteration validation after every builder iteration:
+
+**Strategy rules** (adaptive iteration engine):
+
+| Rule | Action | Trigger |
+|------|--------|---------|
+| Failure retry | Retry with hint | Task fails for the 1st time — injects "previous attempt failed" context |
+| Failure skip | Skip task | Task fails a 2nd consecutive time — marks as blocked, moves on |
+| Deadlock | **Halts loop** | All remaining tasks are blocked or depend on blocked tasks |
+| Thrashing | Skip task | Same task attempted 3+ consecutive iterations without progress |
+| Progress warning | Retry with warning | 2 consecutive unproductive iterations — injects warning |
+| Progress halt | **Halts loop** | 3 consecutive unproductive iterations — no forward progress |
+
+Success resets both failure and unproductive counters.
+
+**Validation checks:**
 
 | Check | Severity | Trigger |
 |-------|----------|---------|
@@ -471,7 +488,6 @@ golem runs post-iteration validation after every builder iteration:
 | State snapshot restore | Auto-recovery | State corrupted beyond repair — restores from snapshot |
 | Locked path violation | Warning | Agent modified files under a locked path |
 | Task regression | Warning | Task status went from `done` to non-done |
-| Thrashing detection | Warning | Same task in-progress for 3+ consecutive iterations |
 
 Signal handling: `SIGINT`/`SIGTERM` gracefully cancel the current iteration and stop the loop.
 
