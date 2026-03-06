@@ -50,6 +50,11 @@ func (s *Server) routes() {
 	// Global config
 	s.mux.HandleFunc("GET /api/config", s.handleGetGlobalConfig)
 	s.mux.HandleFunc("PUT /api/config", s.handleUpdateGlobalConfig)
+
+	// Processes
+	s.mux.HandleFunc("POST /api/projects/{id}/processes", s.handleLaunchProcess)
+	s.mux.HandleFunc("GET /api/projects/{id}/processes", s.handleListProcesses)
+	s.mux.HandleFunc("DELETE /api/projects/{id}/processes/{procId}", s.handleStopProcess)
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {

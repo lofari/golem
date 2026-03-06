@@ -1,0 +1,99 @@
+package server
+
+import (
+	"bytes"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"testing"
+	"time"
+)
+
+func TestLaunchAndListProcesses(t *testing.T) {
+	dir := setupTestProject(t)
+	srv := New(Config{})
+	srv.RegisterProject(dir)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	pid := srv.projectID(dir)
+
+	// Launch a process (use "echo" as a test command instead of real golem)
+	body, _ := json.Marshal(LaunchRequest{
+		Command: "code",
+		Config:  LaunchConfig{MaxIterations: 5},
+	})
+	resp, err := http.Post(ts.URL+"/api/projects/"+pid+"/processes", "application/json", bytes.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("expected 201, got %d", resp.StatusCode)
+	}
+
+	var result map[string]string
+	json.NewDecoder(resp.Body).Decode(&result)
+	if result["id"] == "" {
+		t.Fatal("expected process ID")
+	}
+
+	// List processes
+	resp2, err := http.Get(ts.URL + "/api/projects/" + pid + "/processes")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp2.Body.Close()
+
+	var procs []ProcessInfo
+	json.NewDecoder(resp2.Body).Decode(&procs)
+	if len(procs) != 1 {
+		t.Fatalf("expected 1 process, got %d", len(procs))
+	}
+	if procs[0].Command != "code" {
+		t.Fatalf("expected command 'code', got %q", procs[0].Command)
+	}
+}
+
+func TestStopProcess(t *testing.T) {
+	dir := setupTestProject(t)
+	srv := New(Config{})
+	srv.RegisterProject(dir)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	pid := srv.projectID(dir)
+
+	// Launch
+	body, _ := json.Marshal(LaunchRequest{Command: "code"})
+	resp, _ := http.Post(ts.URL+"/api/projects/"+pid+"/processes", "application/json", bytes.NewReader(body))
+	var result map[string]string
+	json.NewDecoder(resp.Body).Decode(&result)
+	resp.Body.Close()
+
+	procID := result["id"]
+
+	// Stop
+	req, _ := http.NewRequest(http.MethodDelete, ts.URL+"/api/projects/"+pid+"/processes/"+procID, nil)
+	resp2, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp2.Body.Close()
+	if resp2.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp2.StatusCode)
+	}
+
+	// Wait a moment and verify it's gone
+	time.Sleep(100 * time.Millisecond)
+	resp3, _ := http.Get(ts.URL + "/api/projects/" + pid + "/processes")
+	var procs []ProcessInfo
+	json.NewDecoder(resp3.Body).Decode(&procs)
+	resp3.Body.Close()
+
+	for _, p := range procs {
+		if p.ID == procID && p.Status == "running" {
+			t.Fatal("process should not be running after stop")
+		}
+	}
+}
