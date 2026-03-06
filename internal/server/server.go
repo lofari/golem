@@ -55,6 +55,10 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /api/projects/{id}/processes", s.handleLaunchProcess)
 	s.mux.HandleFunc("GET /api/projects/{id}/processes", s.handleListProcesses)
 	s.mux.HandleFunc("DELETE /api/projects/{id}/processes/{procId}", s.handleStopProcess)
+
+	// WebSocket
+	s.mux.HandleFunc("GET /api/projects/{id}/processes/{procId}/stream", s.handleProcessStream)
+	s.mux.HandleFunc("GET /api/projects/{id}/watch", s.handleStateWatch)
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
