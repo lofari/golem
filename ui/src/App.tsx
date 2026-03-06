@@ -1,10 +1,55 @@
+import { useEffect } from "react";
+import { Sidebar } from "./components/Sidebar";
+import { ConnectionStatus } from "./components/ConnectionStatus";
+import { useAppStore } from "./stores/appStore";
+import { api } from "./lib/api";
 import "./App.css";
 
 function App() {
+  const { setConnected, setProjects, selectedProjectId } = useAppStore();
+
+  useEffect(() => {
+    let mounted = true;
+    let interval: ReturnType<typeof setInterval>;
+
+    async function poll() {
+      try {
+        await api.health();
+        if (!mounted) return;
+        setConnected(true);
+        const projects = await api.listProjects();
+        if (mounted) setProjects(projects);
+      } catch {
+        if (mounted) setConnected(false);
+      }
+    }
+
+    poll();
+    interval = setInterval(poll, 5000);
+
+    return () => {
+      mounted = false;
+      clearInterval(interval);
+    };
+  }, [setConnected, setProjects]);
+
   return (
-    <main className="flex items-center justify-center h-screen">
-      <h1 className="text-2xl font-bold text-[var(--text-primary)]">Golem</h1>
-    </main>
+    <div className="h-screen flex flex-col bg-[var(--bg-primary)]">
+      <div className="flex-1 flex overflow-hidden">
+        <Sidebar />
+        <main className="flex-1 flex items-center justify-center">
+          {selectedProjectId ? (
+            <div className="text-[var(--text-secondary)]">Project view coming soon</div>
+          ) : (
+            <div className="text-center text-[var(--text-secondary)]">
+              <div className="text-lg mb-2">Select a project</div>
+              <div className="text-sm">or register one via golem serve</div>
+            </div>
+          )}
+        </main>
+      </div>
+      <ConnectionStatus />
+    </div>
   );
 }
 
