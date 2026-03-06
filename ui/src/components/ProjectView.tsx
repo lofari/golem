@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { ProcessTabs } from "./ProcessTabs";
 import { OutputPane } from "./OutputPane";
 import { TaskPanel } from "./TaskPanel";
+import { ProjectDashboard } from "./ProjectDashboard";
 import { LaunchDialog } from "./LaunchDialog";
 import { useAppStore } from "../stores/appStore";
 import { api, stateWatchURL } from "../lib/api";
@@ -10,6 +11,7 @@ import { useWebSocket } from "../hooks/useWebSocket";
 export function ProjectView() {
   const {
     selectedProjectId,
+    selectedProcessId,
     setProcesses,
     setProjectState,
     setSessions,
@@ -63,8 +65,14 @@ export function ProjectView() {
     <div className="flex-1 flex flex-col">
       <ProcessTabs onLaunch={() => setShowLaunchDialog(true)} />
       <div className="flex-1 flex overflow-hidden">
-        <OutputPane />
-        <TaskPanel />
+        {selectedProcessId ? (
+          <>
+            <OutputPane />
+            <TaskPanel />
+          </>
+        ) : (
+          <ProjectDashboard />
+        )}
       </div>
       <LaunchDialog open={showLaunchDialog} onClose={() => setShowLaunchDialog(false)} />
     </div>
