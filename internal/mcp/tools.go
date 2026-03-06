@@ -323,6 +323,7 @@ func logSessionTool() mcp.Tool {
 				"outcome":       map[string]string{"type": "string", "description": "Outcome: done, partial, blocked, or unproductive"},
 				"summary":       map[string]string{"type": "string", "description": "Brief summary of work done"},
 				"files_changed": map[string]any{"type": "array", "items": map[string]string{"type": "string"}, "description": "List of files modified"},
+				"handoff":       map[string]string{"type": "string", "description": "Handoff note for the next iteration — what you worked on, where you left off, what to do next, and any gotchas"},
 			},
 			Required: []string{"task", "outcome", "summary"},
 		},
@@ -334,6 +335,7 @@ func (gs *GolemServer) handleLogSession(_ context.Context, req mcp.CallToolReque
 	task := getStr(args, "task")
 	outcome := getStr(args, "outcome")
 	summary := getStr(args, "summary")
+	handoff := getStr(args, "handoff")
 	filesChanged := getStrSlice(args, "files_changed")
 
 	validOutcomes := map[string]bool{"done": true, "partial": true, "blocked": true, "unproductive": true}
@@ -349,6 +351,7 @@ func (gs *GolemServer) handleLogSession(_ context.Context, req mcp.CallToolReque
 			Task:         task,
 			Outcome:      outcome,
 			Summary:      summary,
+			Handoff:      handoff,
 			FilesChanged: filesChanged,
 		})
 		return l, nil
