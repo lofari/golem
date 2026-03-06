@@ -90,3 +90,17 @@ func TestBuildTaskOverride(t *testing.T) {
 		t.Error("missing MUST directive")
 	}
 }
+
+func TestBuildHandoffContext(t *testing.T) {
+	if got := BuildHandoffContext(""); got != "" {
+		t.Errorf("empty handoff should produce empty string, got %q", got)
+	}
+
+	got := BuildHandoffContext("Auth provider configured. Next: callback handler.")
+	if !strings.Contains(got, "## Handoff from Previous Iteration") {
+		t.Error("missing handoff header")
+	}
+	if !strings.Contains(got, "Auth provider configured") {
+		t.Error("missing handoff content")
+	}
+}

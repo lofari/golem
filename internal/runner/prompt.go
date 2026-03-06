@@ -57,6 +57,14 @@ func BuildTaskOverride(taskName string) string {
 	return fmt.Sprintf("IMPORTANT: You MUST work on the following task this iteration: %q\nDo not pick a different task.\n", taskName)
 }
 
+// BuildHandoffContext wraps a handoff note from the previous iteration.
+func BuildHandoffContext(handoff string) string {
+	if handoff == "" {
+		return ""
+	}
+	return fmt.Sprintf("## Handoff from Previous Iteration\n%s\n", handoff)
+}
+
 // BuildReviewContext generates prompt context for pending [review] tasks.
 // This is appended to the prompt so Claude knows how to handle review tasks
 // regardless of the user's prompt template version.

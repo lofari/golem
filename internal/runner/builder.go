@@ -49,6 +49,13 @@ func RunBuilderLoop(ctx context.Context, cfg BuilderConfig) (BuilderResult, erro
 	strategy := NewStrategy()
 	var injectedContext string
 
+	// Seed handoff from last session (if any) for first iteration
+	if seedLog, seedErr := golemctx.ReadLog(cfg.Dir); seedErr == nil {
+		if last := lastLogSession(seedLog); last != nil {
+			injectedContext = BuildHandoffContext(last.Handoff)
+		}
+	}
+
 	state, err := golemctx.ReadState(cfg.Dir)
 	if err != nil {
 		return result, fmt.Errorf("reading initial state: %w", err)
@@ -274,6 +281,16 @@ Loop:
 			break Loop
 		case ActionRetry, ActionSkip:
 			injectedContext = decision.InjectContext
+		}
+
+		// Inject handoff from the iteration that just ran
+		if last := lastLogSession(log); last != nil && last.Handoff != "" {
+			handoffCtx := BuildHandoffContext(last.Handoff)
+			if injectedContext == "" {
+				injectedContext = handoffCtx
+			} else {
+				injectedContext = handoffCtx + "\n" + injectedContext
+			}
 		}
 
 		result.Iterations = i
