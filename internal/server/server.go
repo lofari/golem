@@ -38,6 +38,18 @@ func New(cfg Config) *Server {
 
 func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/health", s.handleHealth)
+
+	// Projects
+	s.mux.HandleFunc("GET /api/projects", s.handleListProjects)
+	s.mux.HandleFunc("POST /api/projects", s.handleRegisterProject)
+	s.mux.HandleFunc("GET /api/projects/{id}/state", s.handleGetState)
+	s.mux.HandleFunc("GET /api/projects/{id}/log", s.handleGetLog)
+	s.mux.HandleFunc("GET /api/projects/{id}/config", s.handleGetProjectConfig)
+	s.mux.HandleFunc("PUT /api/projects/{id}/config", s.handleUpdateProjectConfig)
+
+	// Global config
+	s.mux.HandleFunc("GET /api/config", s.handleGetGlobalConfig)
+	s.mux.HandleFunc("PUT /api/config", s.handleUpdateGlobalConfig)
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
