@@ -1,13 +1,15 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { Sidebar } from "./components/Sidebar";
 import { ConnectionStatus } from "./components/ConnectionStatus";
 import { ProjectView } from "./components/ProjectView";
+import { SettingsDialog } from "./components/SettingsDialog";
 import { useAppStore } from "./stores/appStore";
 import { api } from "./lib/api";
 import "./App.css";
 
 function App() {
   const { setConnected, setProjects, selectedProjectId } = useAppStore();
+  const [showSettings, setShowSettings] = useState(false);
 
   useEffect(() => {
     let mounted = true;
@@ -51,7 +53,17 @@ function App() {
           )}
         </main>
       </div>
-      <ConnectionStatus />
+      <div className="flex items-center">
+        <ConnectionStatus />
+        <button
+          onClick={() => setShowSettings(true)}
+          className="h-7 px-3 border-t border-l border-[var(--border)] bg-[var(--bg-surface)] text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
+          title="Settings"
+        >
+          {"\u2699"}
+        </button>
+      </div>
+      <SettingsDialog open={showSettings} onClose={() => setShowSettings(false)} />
     </div>
   );
 }
