@@ -13,17 +13,17 @@ import (
 
 // Config holds all golem configuration values.
 type Config struct {
-	MaxIterations  int      `yaml:"max-iterations"`
-	MaxToolCalls       int      `yaml:"max-tool-calls"`
-	Verbose        bool     `yaml:"verbose"`
-	Sandbox        bool     `yaml:"sandbox"`
-	SandboxTools   []string `yaml:"sandbox-tools"`
-	SandboxTimeout string   `yaml:"sandbox-timeout"`
-	SandboxMemory  string   `yaml:"sandbox-memory"`
-	MCP            bool     `yaml:"mcp"`
-	Parallel       int      `yaml:"parallel"`
-	PluginDir      []string `yaml:"plugin-dir"`
-	Model          string   `yaml:"model"`
+	MaxIterations  int      `yaml:"max-iterations" json:"max-iterations"`
+	MaxToolCalls   int      `yaml:"max-tool-calls" json:"max-tool-calls"`
+	Verbose        bool     `yaml:"verbose" json:"verbose"`
+	Sandbox        bool     `yaml:"sandbox" json:"sandbox"`
+	SandboxTools   []string `yaml:"sandbox-tools" json:"sandbox-tools,omitempty"`
+	SandboxTimeout string   `yaml:"sandbox-timeout" json:"sandbox-timeout,omitempty"`
+	SandboxMemory  string   `yaml:"sandbox-memory" json:"sandbox-memory,omitempty"`
+	MCP            bool     `yaml:"mcp" json:"mcp"`
+	Parallel       int      `yaml:"parallel" json:"parallel"`
+	PluginDir      []string `yaml:"plugin-dir" json:"plugin-dir,omitempty"`
+	Model          string   `yaml:"model" json:"model"`
 }
 
 // Defaults returns a Config with built-in default values.
