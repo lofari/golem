@@ -68,7 +68,7 @@ var uiCmd = &cobra.Command{
 			}()
 		}
 
-		// Find and launch the Tauri app
+		// Find and launch the desktop app
 		appPath := findAppBinary()
 		if appPath == "" {
 			fmt.Fprintf(os.Stderr, "golem ui: desktop app not found (install golem-ui next to golem binary or in PATH)\n")
@@ -107,17 +107,22 @@ var uiCmd = &cobra.Command{
 
 // findAppBinary looks for the Golem desktop app binary in common locations.
 func findAppBinary() string {
-	// Check next to the golem binary (e.g. ~/go/bin/golem-ui)
+	names := []string{"golem-ui", "golem_ui"}
+
 	if exe, err := os.Executable(); err == nil {
-		p := filepath.Join(filepath.Dir(exe), "golem-ui")
-		if _, err := os.Stat(p); err == nil {
-			return p
+		dir := filepath.Dir(exe)
+		for _, name := range names {
+			p := filepath.Join(dir, name)
+			if _, err := os.Stat(p); err == nil {
+				return p
+			}
 		}
 	}
 
-	// Check in PATH
-	if path, err := exec.LookPath("golem-ui"); err == nil {
-		return path
+	for _, name := range names {
+		if path, err := exec.LookPath(name); err == nil {
+			return path
+		}
 	}
 
 	return ""
