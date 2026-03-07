@@ -11,18 +11,18 @@ import (
 )
 
 type State struct {
-	Project   Project    `yaml:"project"`
-	Status    Status     `yaml:"status"`
-	Decisions []Decision `yaml:"decisions"`
-	Locked    []Lock     `yaml:"locked"`
-	Tasks     []Task     `yaml:"tasks"`
-	Pitfalls  []Pitfall  `yaml:"pitfalls"`
+	Project   Project    `yaml:"project" json:"project"`
+	Status    Status     `yaml:"status" json:"status"`
+	Decisions []Decision `yaml:"decisions" json:"decisions"`
+	Locked    []Lock     `yaml:"locked" json:"locked"`
+	Tasks     []Task     `yaml:"tasks" json:"tasks"`
+	Pitfalls  []Pitfall  `yaml:"pitfalls" json:"pitfalls"`
 }
 
 // Pitfall accepts both a plain string and a structured object in YAML.
 type Pitfall struct {
-	What string `yaml:"what,omitempty"`
-	Fix  string `yaml:"fix,omitempty"`
+	What string `yaml:"what,omitempty" json:"what"`
+	Fix  string `yaml:"fix,omitempty" json:"fix,omitempty"`
 }
 
 func (p *Pitfall) UnmarshalYAML(unmarshal func(interface{}) error) error {
@@ -58,27 +58,27 @@ func (p Pitfall) String() string {
 }
 
 type Project struct {
-	Name     string `yaml:"name"`
-	Summary  string `yaml:"summary"`
-	Stack    string `yaml:"stack"`
-	DocsPath string `yaml:"docs_path"`
+	Name     string `yaml:"name" json:"name"`
+	Summary  string `yaml:"summary" json:"summary"`
+	Stack    string `yaml:"stack" json:"stack"`
+	DocsPath string `yaml:"docs_path" json:"docs_path"`
 }
 
 type Status struct {
-	CurrentFocus string `yaml:"current_focus"`
-	Phase        string `yaml:"phase"`
-	LastSession  string `yaml:"last_session"`
+	CurrentFocus string `yaml:"current_focus" json:"current_focus"`
+	Phase        string `yaml:"phase" json:"phase"`
+	LastSession  string `yaml:"last_session" json:"last_session"`
 }
 
 type Decision struct {
-	What string `yaml:"what"`
-	Why  string `yaml:"why"`
-	When string `yaml:"when"`
+	What string `yaml:"what" json:"what"`
+	Why  string `yaml:"why" json:"why"`
+	When string `yaml:"when" json:"when"`
 }
 
 type Lock struct {
-	Path string `yaml:"path"`
-	Note string `yaml:"note"`
+	Path string `yaml:"path" json:"path"`
+	Note string `yaml:"note" json:"note,omitempty"`
 }
 
 func (l *Lock) UnmarshalYAML(unmarshal func(interface{}) error) error {
@@ -99,11 +99,11 @@ func (l *Lock) UnmarshalYAML(unmarshal func(interface{}) error) error {
 }
 
 type Task struct {
-	Name          string     `yaml:"name"`
-	Status        string     `yaml:"status"`
-	Notes         string     `yaml:"notes,omitempty"`
-	DependsOn     FlexString `yaml:"depends_on,omitempty"`
-	BlockedReason string     `yaml:"blocked_reason,omitempty"`
+	Name          string     `yaml:"name" json:"name"`
+	Status        string     `yaml:"status" json:"status"`
+	Notes         string     `yaml:"notes,omitempty" json:"notes,omitempty"`
+	DependsOn     FlexString `yaml:"depends_on,omitempty" json:"depends_on,omitempty"`
+	BlockedReason string     `yaml:"blocked_reason,omitempty" json:"blocked_reason,omitempty"`
 }
 
 // FlexString accepts both a single string and a list of strings in YAML.

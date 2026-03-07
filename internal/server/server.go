@@ -76,7 +76,11 @@ func (s *Server) ListenAndServe() error {
 	if err != nil {
 		return err
 	}
-	defer ln.Close()
+	return s.Serve(ln)
+}
+
+// Serve starts the server on an existing listener.
+func (s *Server) Serve(ln net.Listener) error {
 	return http.Serve(ln, s.Handler())
 }
 

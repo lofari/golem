@@ -2,11 +2,15 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"net"
+	"net/http"
 	"os"
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 
 	"github.com/lofari/golem/internal/server"
@@ -22,27 +26,53 @@ var uiCmd = &cobra.Command{
 
 		srv := server.New(server.Config{Addr: addr})
 
-		// Auto-register current directory if it has .ctx/
 		dir, _ := os.Getwd()
+		hasCtx := false
 		if _, err := os.Stat(dir + "/.ctx"); err == nil {
-			srv.RegisterProject(dir)
-			fmt.Fprintf(os.Stderr, "golem ui: registered project at %s\n", dir)
+			hasCtx = true
 		}
 
 		ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 		defer stop()
 
-		fmt.Fprintf(os.Stderr, "golem ui: starting server on %s\n", addr)
+		// Check if the port is already in use (another golem ui instance)
+		ownServer := true
+		ln, err := net.Listen("tcp", addr)
+		if err != nil {
+			var opErr *net.OpError
+			if errors.As(err, &opErr) && errors.Is(opErr.Err, syscall.EADDRINUSE) {
+				fmt.Fprintf(os.Stderr, "golem ui: server already running on %s, reusing\n", addr)
+				ownServer = false
+			} else {
+				return fmt.Errorf("listen %s: %w", addr, err)
+			}
+		}
 
-		errCh := make(chan error, 1)
-		go func() {
-			errCh <- srv.ListenAndServe()
-		}()
+		if hasCtx {
+			if ownServer {
+				srv.RegisterProject(dir)
+			} else {
+				// Register with the existing server via API
+				body := strings.NewReader(`{"dir":"` + dir + `"}`)
+				http.Post("http://localhost"+addr+"/api/projects", "application/json", body)
+			}
+			fmt.Fprintf(os.Stderr, "golem ui: registered project at %s\n", dir)
+		}
+
+		var errCh chan error
+		if ownServer {
+			fmt.Fprintf(os.Stderr, "golem ui: starting server on %s\n", addr)
+			errCh = make(chan error, 1)
+			go func() {
+				errCh <- srv.Serve(ln)
+			}()
+		}
 
 		// Find and launch the Tauri app
 		appPath := findAppBinary()
 		if appPath == "" {
-			fmt.Fprintf(os.Stderr, "golem ui: desktop app not found, server running at http://localhost%s\n", addr)
+			fmt.Fprintf(os.Stderr, "golem ui: desktop app not found (install golem-ui next to golem binary or in PATH)\n")
+			fmt.Fprintf(os.Stderr, "golem ui: server running at http://localhost%s\n", addr)
 		} else {
 			fmt.Fprintf(os.Stderr, "golem ui: launching desktop app\n")
 			appCmd := exec.CommandContext(ctx, appPath)
@@ -59,43 +89,35 @@ var uiCmd = &cobra.Command{
 			}
 		}
 
-		select {
-		case <-ctx.Done():
+		if ownServer {
+			select {
+			case <-ctx.Done():
+				fmt.Fprintf(os.Stderr, "\ngolem ui: shutting down\n")
+				return nil
+			case err := <-errCh:
+				return err
+			}
+		} else {
+			<-ctx.Done()
 			fmt.Fprintf(os.Stderr, "\ngolem ui: shutting down\n")
 			return nil
-		case err := <-errCh:
-			return err
 		}
 	},
 }
 
 // findAppBinary looks for the Golem desktop app binary in common locations.
 func findAppBinary() string {
-	// Check next to the golem binary
-	exe, err := os.Executable()
-	if err == nil {
-		dir := filepath.Dir(exe)
-		candidates := []string{
-			filepath.Join(dir, "golem-ui"),
-			filepath.Join(dir, "Golem"),
-		}
-		for _, c := range candidates {
-			if _, err := os.Stat(c); err == nil {
-				return c
-			}
+	// Check next to the golem binary (e.g. ~/go/bin/golem-ui)
+	if exe, err := os.Executable(); err == nil {
+		p := filepath.Join(filepath.Dir(exe), "golem-ui")
+		if _, err := os.Stat(p); err == nil {
+			return p
 		}
 	}
 
 	// Check in PATH
 	if path, err := exec.LookPath("golem-ui"); err == nil {
 		return path
-	}
-
-	// Check the Tauri build output relative to golem source
-	dir, _ := os.Getwd()
-	tauriRelease := filepath.Join(dir, "ui", "src-tauri", "target", "release", "golem-ui")
-	if _, err := os.Stat(tauriRelease); err == nil {
-		return tauriRelease
 	}
 
 	return ""

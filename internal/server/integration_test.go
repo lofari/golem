@@ -52,9 +52,9 @@ func TestFullWorkflow(t *testing.T) {
 	var state map[string]interface{}
 	json.NewDecoder(resp.Body).Decode(&state)
 	resp.Body.Close()
-	if proj, ok := state["Project"].(map[string]interface{}); ok {
-		if proj["Name"] != "test-project" {
-			t.Fatalf("expected name test-project, got %v", proj["Name"])
+	if proj, ok := state["project"].(map[string]interface{}); ok {
+		if proj["name"] != "test-project" {
+			t.Fatalf("expected name test-project, got %v", proj["name"])
 		}
 	} else {
 		t.Fatalf("unexpected state shape: %v", state)
@@ -73,7 +73,7 @@ func TestFullWorkflow(t *testing.T) {
 	var log map[string]interface{}
 	json.NewDecoder(resp.Body).Decode(&log)
 	resp.Body.Close()
-	if sessions, ok := log["Sessions"].([]interface{}); ok {
+	if sessions, ok := log["sessions"].([]interface{}); ok {
 		if len(sessions) != 1 {
 			t.Fatalf("expected 1 session, got %d", len(sessions))
 		}

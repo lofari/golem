@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/lofari/golem/internal/config"
 	golemctx "github.com/lofari/golem/internal/ctx"
@@ -107,6 +108,11 @@ func (s *Server) handleGetLog(w http.ResponseWriter, r *http.Request) {
 	}
 	log, err := golemctx.ReadLog(p.path)
 	if err != nil {
+		// Return empty log if file doesn't exist yet (new project)
+		if os.IsNotExist(err) || strings.Contains(err.Error(), "no such file") {
+			writeJSON(w, http.StatusOK, golemctx.Log{})
+			return
+		}
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}

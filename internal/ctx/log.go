@@ -10,19 +10,19 @@ import (
 )
 
 type Log struct {
-	Sessions []Session `yaml:"sessions"`
+	Sessions []Session `yaml:"sessions" json:"sessions"`
 }
 
 type Session struct {
-	Iteration     int      `yaml:"iteration"`
-	Timestamp     string   `yaml:"timestamp"`
-	Task          string   `yaml:"task"`
-	Outcome       string   `yaml:"outcome"`
-	Summary       string   `yaml:"summary"`
-	Handoff       string   `yaml:"handoff,omitempty"`
-	FilesChanged  []string `yaml:"files_changed,omitempty"`
-	DecisionsMade []string `yaml:"decisions_made,omitempty"`
-	PitfallsFound []string `yaml:"pitfalls_found,omitempty"`
+	Iteration     int      `yaml:"iteration" json:"iteration"`
+	Timestamp     string   `yaml:"timestamp" json:"timestamp"`
+	Task          string   `yaml:"task" json:"task"`
+	Outcome       string   `yaml:"outcome" json:"outcome"`
+	Summary       string   `yaml:"summary" json:"summary"`
+	Handoff       string   `yaml:"handoff,omitempty" json:"handoff,omitempty"`
+	FilesChanged  []string `yaml:"files_changed,omitempty" json:"files_changed,omitempty"`
+	DecisionsMade []string `yaml:"decisions_made,omitempty" json:"decisions_made,omitempty"`
+	PitfallsFound []string `yaml:"pitfalls_found,omitempty" json:"pitfalls_found,omitempty"`
 }
 
 func LogPath(dir string) string {
