@@ -164,3 +164,30 @@ func TestHandleLogSession(t *testing.T) {
 		t.Errorf("session task = %q", log.Sessions[0].Task)
 	}
 }
+
+func TestHandleLogSession_WithHandoff(t *testing.T) {
+	dir := setupTestDir(t)
+	gs := NewServer(dir)
+
+	result, err := gs.handleLogSession(context.Background(), mcp.CallToolRequest{
+		Params: mcp.CallToolParams{
+			Arguments: map[string]interface{}{
+				"task":    "auth",
+				"outcome": "partial",
+				"summary": "started OAuth2 flow",
+				"handoff": "Provider configured. Next: implement callback in auth.go:45.",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("handleLogSession: %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("tool returned error: %v", result.Content)
+	}
+
+	log, _ := golemctx.ReadLog(dir)
+	if log.Sessions[0].Handoff != "Provider configured. Next: implement callback in auth.go:45." {
+		t.Errorf("handoff = %q", log.Sessions[0].Handoff)
+	}
+}

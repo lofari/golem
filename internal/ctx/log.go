@@ -19,6 +19,7 @@ type Session struct {
 	Task          string   `yaml:"task"`
 	Outcome       string   `yaml:"outcome"`
 	Summary       string   `yaml:"summary"`
+	Handoff       string   `yaml:"handoff,omitempty"`
 	FilesChanged  []string `yaml:"files_changed,omitempty"`
 	DecisionsMade []string `yaml:"decisions_made,omitempty"`
 	PitfallsFound []string `yaml:"pitfalls_found,omitempty"`
