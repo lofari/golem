@@ -66,7 +66,7 @@ class ProcessTerminalNotifier extends StateNotifier<Terminal> {
           switch (data['type']) {
             case 'output':
               final bytes = base64Decode(data['data'] as String);
-              state.write(String.fromCharCodes(bytes));
+              state.write(utf8.decode(bytes, allowMalformed: true));
             case 'exit':
               _exited = true;
           }
