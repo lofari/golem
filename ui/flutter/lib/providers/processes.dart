@@ -1,5 +1,7 @@
 import 'dart:async';
+import 'dart:convert';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:xterm/xterm.dart';
 import '../api/client.dart';
 import '../api/websocket.dart';
 import '../models/process.dart';
@@ -42,36 +44,52 @@ class ProcessesNotifier extends StateNotifier<List<ProcessInfo>> {
 // Selected process tab
 final selectedProcessIdProvider = StateProvider<String?>((ref) => null);
 
-// Output lines per process
-final processOutputProvider =
-    StateNotifierProvider.family<ProcessOutputNotifier, List<String>, String>((ref, processId) {
+// Terminal instance per process
+final processTerminalProvider =
+    StateNotifierProvider.family<ProcessTerminalNotifier, Terminal, String>((ref, processId) {
   final projectInfo = ref.read(projectInfoProvider);
   final api = ref.read(apiClientProvider);
-  return ProcessOutputNotifier(api, projectInfo?.id, processId);
+  return ProcessTerminalNotifier(api, projectInfo?.id, processId);
 });
 
-class ProcessOutputNotifier extends StateNotifier<List<String>> {
+class ProcessTerminalNotifier extends StateNotifier<Terminal> {
   final GolemApiClient _api;
   GolemWebSocket? _ws;
-  static const _maxLines = 5000;
+  bool _exited = false;
 
-  ProcessOutputNotifier(this._api, String? projectId, String processId) : super([]) {
+  ProcessTerminalNotifier(this._api, String? projectId, String processId)
+      : super(Terminal()) {
     if (projectId != null) {
       _ws = GolemWebSocket(
         url: _api.processStreamUrl(projectId, processId),
         onMessage: (data) {
-          if (data['type'] == 'output' && data['line'] != null) {
-            final newLines = [...state, data['line'] as String];
-            if (newLines.length > _maxLines) {
-              state = newLines.sublist(newLines.length - _maxLines);
-            } else {
-              state = newLines;
-            }
+          switch (data['type']) {
+            case 'output':
+              final bytes = base64Decode(data['data'] as String);
+              state.write(String.fromCharCodes(bytes));
+            case 'exit':
+              _exited = true;
           }
         },
       );
       _ws!.connect();
+
+      // Forward terminal input to server
+      state.onOutput = (data) {
+        if (!_exited) {
+          _ws?.send({
+            'type': 'input',
+            'data': base64Encode(utf8.encode(data)),
+          });
+        }
+      };
     }
+  }
+
+  bool get exited => _exited;
+
+  void sendResize(int cols, int rows) {
+    _ws?.send({'type': 'resize', 'cols': cols, 'rows': rows});
   }
 
   @override
