@@ -25,9 +25,10 @@ type BuilderConfig struct {
 	Verbose       bool
 	MCPEnabled    bool
 	Parallel       int // max parallel sessions (1 = sequential)
-	PromptTemplate string // prompt template filename (default: "prompt.md")
-	Runner         CommandRunner
-	Events         chan<- Event
+	PromptTemplate   string // prompt template filename (default: "prompt.md")
+	ExecutionHistory int    // number of execution sessions to retain (default 5)
+	Runner           CommandRunner
+	Events           chan<- Event
 }
 
 func (cfg *BuilderConfig) emit(ev Event) {
@@ -107,7 +108,11 @@ func RunBuilderLoop(ctx context.Context, cfg BuilderConfig) (BuilderResult, erro
 				sessionID := fmt.Sprintf("build-%d", time.Now().Unix())
 				collector := execution.NewCollector(gStore, sessionID)
 
-				execution.PruneSessions(gStore, 5)
+				keepSessions := cfg.ExecutionHistory
+				if keepSessions < 1 {
+					keepSessions = 5
+				}
+				execution.PruneSessions(gStore, keepSessions)
 
 				collector.Start()
 				defer func() {

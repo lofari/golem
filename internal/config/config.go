@@ -23,7 +23,8 @@ type Config struct {
 	MCP            bool     `yaml:"mcp" json:"mcp"`
 	Parallel       int      `yaml:"parallel" json:"parallel"`
 	PluginDir      []string `yaml:"plugin-dir" json:"plugin-dir,omitempty"`
-	Model          string   `yaml:"model" json:"model"`
+	Model            string   `yaml:"model" json:"model"`
+	ExecutionHistory int      `yaml:"execution-history" json:"execution-history"`
 }
 
 // Defaults returns a Config with built-in default values.
@@ -31,8 +32,9 @@ func Defaults() Config {
 	return Config{
 		MaxIterations: 20,
 		MaxToolCalls:      200,
-		MCP:           true,
-		Parallel:      1,
+		MCP:              true,
+		Parallel:         1,
+		ExecutionHistory: 5,
 	}
 }
 
@@ -83,7 +85,8 @@ type configLayer struct {
 	MCP            *bool    `yaml:"mcp"`
 	Parallel       *int     `yaml:"parallel"`
 	PluginDir      []string `yaml:"plugin-dir"`
-	Model          *string  `yaml:"model"`
+	Model            *string `yaml:"model"`
+	ExecutionHistory *int    `yaml:"execution-history"`
 }
 
 func readFile(path string) (configLayer, error) {
@@ -129,6 +132,9 @@ func merge(base Config, layer configLayer) Config {
 	}
 	if layer.Model != nil {
 		base.Model = *layer.Model
+	}
+	if layer.ExecutionHistory != nil {
+		base.ExecutionHistory = *layer.ExecutionHistory
 	}
 	return base
 }
@@ -190,6 +196,8 @@ func GetValue(cfg Config, key string) (string, error) {
 		return strings.Join(cfg.PluginDir, ","), nil
 	case "model":
 		return cfg.Model, nil
+	case "execution-history":
+		return strconv.Itoa(cfg.ExecutionHistory), nil
 	default:
 		return "", fmt.Errorf("unknown config key: %q", key)
 	}
@@ -220,6 +228,7 @@ func PrintConfig(w io.Writer, cfg Config) {
 	if cfg.Model != "" {
 		fmt.Fprintf(w, "model: %s\n", cfg.Model)
 	}
+	fmt.Fprintf(w, "execution-history: %d\n", cfg.ExecutionHistory)
 }
 
 // KeyInfo describes a config key for the interactive wizard.
@@ -242,6 +251,7 @@ func Keys() []KeyInfo {
 		{"mcp", "enable golem MCP server (true/false)"},
 		{"parallel", "max parallel task sessions (1 = sequential)"},
 		{"plugin-dir", "plugin directories (comma-separated)"},
+		{"execution-history", "number of execution sessions to retain (default 5)"},
 	}
 }
 

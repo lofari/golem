@@ -40,8 +40,9 @@ var codeCmd = &cobra.Command{
 			DryRun:        rc.DryRun,
 			Verbose:       rc.Verbose,
 			MCPEnabled:    rc.MCP,
-			Parallel:      rc.Parallel,
-			Runner:        claudeRunner,
+			Parallel:         rc.Parallel,
+			ExecutionHistory: rc.ExecutionHistory,
+			Runner:           claudeRunner,
 		})
 		if err != nil {
 			return err

@@ -38,8 +38,9 @@ var qaCmd = &cobra.Command{
 			TaskOverride:   rc.Task,
 			DryRun:         rc.DryRun,
 			Verbose:        rc.Verbose,
-			MCPEnabled:     rc.MCP,
-			Runner:         claudeRunner,
+			MCPEnabled:       rc.MCP,
+			ExecutionHistory: rc.ExecutionHistory,
+			Runner:           claudeRunner,
 			PromptTemplate: "qa-prompt.md",
 		})
 		if err != nil {
