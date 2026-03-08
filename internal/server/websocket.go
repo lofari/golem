@@ -1,12 +1,14 @@
 package server
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"path/filepath"
 	"time"
 
+	"github.com/creack/pty/v2"
 	"github.com/fsnotify/fsnotify"
 	"nhooyr.io/websocket"
 
@@ -16,7 +18,11 @@ import (
 // WSMessage is a WebSocket message sent to clients.
 type WSMessage struct {
 	Type    string      `json:"type"`
-	Line    string      `json:"line,omitempty"`
+	Data    string      `json:"data,omitempty"`    // base64-encoded PTY output
+	Line    string      `json:"line,omitempty"`    // deprecated, kept for compat
+	Cols    int         `json:"cols,omitempty"`
+	Rows    int         `json:"rows,omitempty"`
+	Code    *int        `json:"code,omitempty"`    // exit code
 	State   interface{} `json:"state,omitempty"`
 	Session interface{} `json:"session,omitempty"`
 	Error   string      `json:"error,omitempty"`
@@ -34,7 +40,7 @@ func (s *Server) handleProcessStream(w http.ResponseWriter, r *http.Request) {
 	}
 
 	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{
-		InsecureSkipVerify: true, // Allow any origin for local dev
+		InsecureSkipVerify: true,
 	})
 	if err != nil {
 		return
@@ -43,27 +49,76 @@ func (s *Server) handleProcessStream(w http.ResponseWriter, r *http.Request) {
 
 	ctx := r.Context()
 
-	// Send backlog
-	for _, line := range mp.output.Lines() {
-		msg, _ := json.Marshal(WSMessage{Type: "output", Line: line})
-		if err := conn.Write(ctx, websocket.MessageText, msg); err != nil {
-			return
-		}
+	// Send backlog as one base64 chunk
+	backlog := mp.output.Bytes()
+	if len(backlog) > 0 {
+		msg, _ := json.Marshal(WSMessage{
+			Type: "output",
+			Data: base64.StdEncoding.EncodeToString(backlog),
+		})
+		conn.Write(ctx, websocket.MessageText, msg)
 	}
 
 	// Subscribe to new output
 	ch := mp.Subscribe()
 	defer mp.Unsubscribe(ch)
 
+	// Read input from client in background
+	go func() {
+		for {
+			_, data, err := conn.Read(ctx)
+			if err != nil {
+				return
+			}
+			var inMsg WSMessage
+			if err := json.Unmarshal(data, &inMsg); err != nil {
+				continue
+			}
+			switch inMsg.Type {
+			case "input":
+				if mp.ptyF != nil {
+					decoded, err := base64.StdEncoding.DecodeString(inMsg.Data)
+					if err == nil {
+						mp.ptyF.Write(decoded)
+					}
+				}
+			case "resize":
+				if mp.ptyF != nil && inMsg.Cols > 0 && inMsg.Rows > 0 {
+					pty.Setsize(mp.ptyF, &pty.Winsize{
+						Rows: uint16(inMsg.Rows),
+						Cols: uint16(inMsg.Cols),
+					})
+				}
+			}
+		}
+	}()
+
+	// Stream output to client
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		case line, ok := <-ch:
+		case chunk, ok := <-ch:
 			if !ok {
 				return
 			}
-			msg, _ := json.Marshal(WSMessage{Type: "output", Line: line})
+			if chunk == nil {
+				// Process exited
+				mp.mu.Lock()
+				status := mp.info.Status
+				mp.mu.Unlock()
+				code := 0
+				if status == "failed" {
+					code = 1
+				}
+				msg, _ := json.Marshal(WSMessage{Type: "exit", Code: &code})
+				conn.Write(ctx, websocket.MessageText, msg)
+				return
+			}
+			msg, _ := json.Marshal(WSMessage{
+				Type: "output",
+				Data: base64.StdEncoding.EncodeToString(chunk),
+			})
 			if err := conn.Write(ctx, websocket.MessageText, msg); err != nil {
 				return
 			}
