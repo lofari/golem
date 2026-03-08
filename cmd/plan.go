@@ -8,6 +8,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/lofari/golem/internal/config"
+	"github.com/lofari/golem/internal/runner"
 	"github.com/lofari/golem/internal/scaffold"
 )
 
@@ -48,6 +49,14 @@ var planCmd = &cobra.Command{
 		}
 		for _, d := range pluginDirs {
 			claudeArgs = append(claudeArgs, "--plugin-dir", d)
+		}
+		if cfg.MCP {
+			mcpPath, mcpErr := runner.WriteMCPConfig(dir)
+			if mcpErr != nil {
+				fmt.Fprintf(os.Stderr, "golem: warning: could not write MCP config: %v\n", mcpErr)
+			} else {
+				claudeArgs = append(claudeArgs, "--mcp-config", mcpPath)
+			}
 		}
 
 		claude := exec.Command("claude", claudeArgs...)
