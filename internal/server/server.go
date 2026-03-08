@@ -59,6 +59,11 @@ func (s *Server) routes() {
 	// WebSocket
 	s.mux.HandleFunc("GET /api/projects/{id}/processes/{procId}/stream", s.handleProcessStream)
 	s.mux.HandleFunc("GET /api/projects/{id}/watch", s.handleStateWatch)
+
+	// Graph queries
+	s.mux.HandleFunc("GET /api/projects/{id}/graph/related", s.handleGraphRelated)
+	s.mux.HandleFunc("POST /api/projects/{id}/graph/search", s.handleGraphSearch)
+	s.mux.HandleFunc("GET /api/projects/{id}/graph/runtime-path", s.handleGraphRuntimePath)
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
