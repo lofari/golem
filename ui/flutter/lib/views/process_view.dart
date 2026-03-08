@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:xterm/xterm.dart';
 import '../models/project.dart' as models;
 import '../providers/project.dart';
 import '../providers/processes.dart';
@@ -13,81 +14,43 @@ class ProcessView extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     return Row(
       children: [
-        Expanded(child: _OutputPane(processId: processId)),
+        Expanded(child: _TerminalPane(processId: processId)),
         const _TaskPanel(),
       ],
     );
   }
 }
 
-class _OutputPane extends ConsumerStatefulWidget {
+class _TerminalPane extends ConsumerStatefulWidget {
   final String processId;
-  const _OutputPane({required this.processId});
+  const _TerminalPane({required this.processId});
 
   @override
-  ConsumerState<_OutputPane> createState() => _OutputPaneState();
+  ConsumerState<_TerminalPane> createState() => _TerminalPaneState();
 }
 
-class _OutputPaneState extends ConsumerState<_OutputPane> {
-  final _scrollController = ScrollController();
-  bool _autoScroll = true;
-
-  @override
-  void dispose() {
-    _scrollController.dispose();
-    super.dispose();
-  }
-
-  void _scrollToBottom() {
-    if (_autoScroll && _scrollController.hasClients) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (_scrollController.hasClients) {
-          _scrollController.jumpTo(_scrollController.position.maxScrollExtent);
-        }
-      });
-    }
-  }
-
+class _TerminalPaneState extends ConsumerState<_TerminalPane> {
   @override
   Widget build(BuildContext context) {
-    final lines = ref.watch(processOutputProvider(widget.processId));
-
-    // Auto-scroll when new lines arrive
-    ref.listen(processOutputProvider(widget.processId), (_, __) {
-      _scrollToBottom();
-    });
+    final terminal = ref.watch(processTerminalProvider(widget.processId));
 
     return Container(
       color: GolemTheme.bgPrimary,
-      child: NotificationListener<ScrollNotification>(
-        onNotification: (notification) {
-          if (notification is UserScrollNotification) {
-            final pos = _scrollController.position;
-            _autoScroll = pos.pixels >= pos.maxScrollExtent - 50;
-          }
-          return false;
-        },
-        child: ListView.builder(
-          controller: _scrollController,
-          padding: const EdgeInsets.all(12),
-          itemCount: lines.length,
-          itemBuilder: (context, index) {
-            return SelectableText.rich(
-              TextSpan(
-                children: [
-                  TextSpan(
-                    text: '\u258E ',
-                    style: GolemTheme.monoStyle().copyWith(color: GolemTheme.border),
-                  ),
-                  TextSpan(
-                    text: lines[index],
-                    style: GolemTheme.monoStyle(),
-                  ),
-                ],
-              ),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          // Send resize when layout changes
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            final notifier = ref.read(
+              processTerminalProvider(widget.processId).notifier,
             );
-          },
-        ),
+            notifier.sendResize(terminal.viewWidth, terminal.viewHeight);
+          });
+
+          return TerminalView(
+            terminal,
+            autofocus: true,
+          );
+        },
       ),
     );
   }
