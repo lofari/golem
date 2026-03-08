@@ -1,3 +1,4 @@
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/process.dart';
@@ -130,6 +131,7 @@ class _ConfigForm extends StatelessWidget {
         mcp: config.mcp,
         parallel: config.parallel,
         model: config.model,
+        pluginDir: config.pluginDir,
       );
 
   @override
@@ -215,6 +217,64 @@ class _ConfigForm extends StatelessWidget {
               c.parallel = int.tryParse(v) ?? 1;
               onChanged(c);
             },
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  config.pluginDir.isEmpty ? 'No plugin directory' : config.pluginDir,
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: config.pluginDir.isEmpty
+                        ? GolemTheme.textSecondary
+                        : GolemTheme.textPrimary,
+                    fontFamily: 'JetBrains Mono',
+                  ),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              const SizedBox(width: 8),
+              if (config.pluginDir.isNotEmpty)
+                IconButton(
+                  icon: const Icon(Icons.clear, size: 16),
+                  color: GolemTheme.textSecondary,
+                  onPressed: () {
+                    final c = _copy();
+                    c.pluginDir = '';
+                    onChanged(c);
+                  },
+                  tooltip: 'Clear plugin directory',
+                  splashRadius: 14,
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
+                ),
+              IconButton(
+                icon: const Icon(Icons.folder_open, size: 16),
+                color: GolemTheme.accent,
+                onPressed: () async {
+                  final result = await FilePicker.platform.getDirectoryPath(
+                    dialogTitle: 'Select Plugin Directory',
+                  );
+                  if (result != null) {
+                    final c = _copy();
+                    c.pluginDir = result;
+                    onChanged(c);
+                  }
+                },
+                tooltip: 'Browse for plugin directory',
+                splashRadius: 14,
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
+              ),
+            ],
+          ),
+          Padding(
+            padding: const EdgeInsets.only(top: 4),
+            child: Text(
+              'plugin-dir',
+              style: TextStyle(fontSize: 10, color: GolemTheme.textSecondary),
+            ),
           ),
         ],
       ),
