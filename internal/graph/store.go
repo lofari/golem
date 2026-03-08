@@ -3,16 +3,37 @@ package graph
 import (
 	"database/sql"
 	"fmt"
+	"strings"
 
+	sqlite_vec "github.com/asg017/sqlite-vec-go-bindings/cgo"
 	_ "github.com/mattn/go-sqlite3"
 
 	"github.com/lofari/golem/internal/graph/model"
 )
 
-// Type aliases so consumers can use graph.Node, graph.Edge, graph.Stats.
+func init() {
+	sqlite_vec.Auto()
+}
+
+// EmbeddingEntry pairs a node ID with its vector.
+type EmbeddingEntry struct {
+	NodeID string
+	Vector []float32
+}
+
+// SimilarResult is returned by SearchSimilar.
+type SimilarResult struct {
+	NodeID   string  `json:"nodeId"`
+	Distance float32 `json:"distance"`
+}
+
+// Type aliases so consumers can use graph.Node, graph.Edge, etc.
 type Node = model.Node
 type Edge = model.Edge
 type Stats = model.Stats
+type Commit = model.Commit
+type Author = model.Author
+type CoChangedResult = model.CoChangedResult
 
 // Store is the SQLite-backed graph storage.
 type Store struct {
@@ -46,17 +67,37 @@ func (s *Store) init() error {
 			from_node TEXT NOT NULL,
 			to_node   TEXT NOT NULL,
 			type      TEXT NOT NULL,
+			weight    INTEGER,
 			PRIMARY KEY (from_node, to_node, type)
 		);
 		CREATE TABLE IF NOT EXISTS graph_meta (
 			key   TEXT PRIMARY KEY,
 			value TEXT
 		);
+		CREATE TABLE IF NOT EXISTS commits (
+			sha          TEXT PRIMARY KEY,
+			message      TEXT NOT NULL,
+			author_email TEXT NOT NULL,
+			timestamp    INTEGER NOT NULL,
+			additions    INTEGER DEFAULT 0,
+			deletions    INTEGER DEFAULT 0
+		);
+		CREATE TABLE IF NOT EXISTS authors (
+			email TEXT PRIMARY KEY,
+			name  TEXT NOT NULL
+		);
 		CREATE INDEX IF NOT EXISTS idx_edges_from ON edges(from_node);
 		CREATE INDEX IF NOT EXISTS idx_edges_to ON edges(to_node);
 		CREATE INDEX IF NOT EXISTS idx_edges_type ON edges(type);
 		CREATE INDEX IF NOT EXISTS idx_nodes_type ON nodes(type);
 		CREATE INDEX IF NOT EXISTS idx_nodes_path ON nodes(path);
+		CREATE INDEX IF NOT EXISTS idx_commits_author ON commits(author_email);
+		CREATE INDEX IF NOT EXISTS idx_commits_timestamp ON commits(timestamp);
+
+		CREATE VIRTUAL TABLE IF NOT EXISTS vec_embeddings USING vec0(
+			node_id TEXT PRIMARY KEY,
+			embedding float[384]
+		);
 	`
 	_, err := s.db.Exec(schema)
 	return err
@@ -87,7 +128,7 @@ func (s *Store) InsertBatch(nodes []Node, edges []Edge) error {
 		}
 	}
 
-	edgeStmt, err := tx.Prepare("INSERT OR REPLACE INTO edges (from_node, to_node, type) VALUES (?, ?, ?)")
+	edgeStmt, err := tx.Prepare("INSERT OR REPLACE INTO edges (from_node, to_node, type, weight) VALUES (?, ?, ?, NULL)")
 	if err != nil {
 		return err
 	}
@@ -231,6 +272,248 @@ func (s *Store) Stats() (Stats, error) {
 	}
 
 	return stats, nil
+}
+
+// InsertEmbedding stores a single embedding vector for a node.
+func (s *Store) InsertEmbedding(nodeID string, vector []float32) error {
+	blob, err := sqlite_vec.SerializeFloat32(vector)
+	if err != nil {
+		return fmt.Errorf("serialize vector: %w", err)
+	}
+	_, err = s.db.Exec("INSERT OR REPLACE INTO vec_embeddings(node_id, embedding) VALUES (?, ?)", nodeID, blob)
+	return err
+}
+
+// InsertEmbeddingsBatch stores multiple embeddings in a single transaction.
+func (s *Store) InsertEmbeddingsBatch(entries []EmbeddingEntry) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	stmt, err := tx.Prepare("INSERT OR REPLACE INTO vec_embeddings(node_id, embedding) VALUES (?, ?)")
+	if err != nil {
+		return err
+	}
+	defer stmt.Close()
+
+	for _, e := range entries {
+		blob, err := sqlite_vec.SerializeFloat32(e.Vector)
+		if err != nil {
+			return fmt.Errorf("serialize vector for %s: %w", e.NodeID, err)
+		}
+		if _, err := stmt.Exec(e.NodeID, blob); err != nil {
+			return fmt.Errorf("insert embedding for %s: %w", e.NodeID, err)
+		}
+	}
+	return tx.Commit()
+}
+
+// SearchSimilar finds the k most similar nodes to the query vector.
+func (s *Store) SearchSimilar(queryVec []float32, limit int) ([]SimilarResult, error) {
+	blob, err := sqlite_vec.SerializeFloat32(queryVec)
+	if err != nil {
+		return nil, fmt.Errorf("serialize query: %w", err)
+	}
+	rows, err := s.db.Query(
+		"SELECT node_id, distance FROM vec_embeddings WHERE embedding MATCH ? AND k = ? ORDER BY distance",
+		blob, limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var results []SimilarResult
+	for rows.Next() {
+		var r SimilarResult
+		if err := rows.Scan(&r.NodeID, &r.Distance); err != nil {
+			return nil, err
+		}
+		results = append(results, r)
+	}
+	return results, rows.Err()
+}
+
+// DeleteEmbeddingsByPath removes embeddings for all nodes with the given file path.
+func (s *Store) DeleteEmbeddingsByPath(path string) error {
+	_, err := s.db.Exec(
+		"DELETE FROM vec_embeddings WHERE node_id IN (SELECT id FROM nodes WHERE path = ?)",
+		path,
+	)
+	return err
+}
+
+// ClearEmbeddings removes all embeddings.
+func (s *Store) ClearEmbeddings() error {
+	_, err := s.db.Exec("DELETE FROM vec_embeddings")
+	return err
+}
+
+// EmbeddingCount returns the number of stored embeddings.
+func (s *Store) EmbeddingCount() (int, error) {
+	var count int
+	err := s.db.QueryRow("SELECT count(*) FROM vec_embeddings").Scan(&count)
+	return count, err
+}
+
+// InsertCommitBatch inserts commits in a single transaction.
+func (s *Store) InsertCommitBatch(commits []Commit) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	stmt, err := tx.Prepare("INSERT OR REPLACE INTO commits (sha, message, author_email, timestamp, additions, deletions) VALUES (?, ?, ?, ?, ?, ?)")
+	if err != nil {
+		return err
+	}
+	defer stmt.Close()
+
+	for _, c := range commits {
+		if _, err := stmt.Exec(c.SHA, c.Message, c.AuthorEmail, c.Timestamp, c.Additions, c.Deletions); err != nil {
+			return fmt.Errorf("inserting commit %s: %w", c.SHA, err)
+		}
+	}
+
+	return tx.Commit()
+}
+
+// InsertAuthorBatch upserts authors in a single transaction.
+func (s *Store) InsertAuthorBatch(authors []Author) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	stmt, err := tx.Prepare("INSERT OR REPLACE INTO authors (email, name) VALUES (?, ?)")
+	if err != nil {
+		return err
+	}
+	defer stmt.Close()
+
+	for _, a := range authors {
+		if _, err := stmt.Exec(a.Email, a.Name); err != nil {
+			return fmt.Errorf("inserting author %s: %w", a.Email, err)
+		}
+	}
+
+	return tx.Commit()
+}
+
+// InsertEdgeWithWeight inserts an edge with a weight value.
+func (s *Store) InsertEdgeWithWeight(from, to, edgeType string, weight int) error {
+	_, err := s.db.Exec(
+		"INSERT OR REPLACE INTO edges (from_node, to_node, type, weight) VALUES (?, ?, ?, ?)",
+		from, to, edgeType, weight,
+	)
+	return err
+}
+
+// QueryCommitsByFile returns commits that modified the given file path, ordered by timestamp descending.
+func (s *Store) QueryCommitsByFile(filePath string, limit int) ([]Commit, error) {
+	rows, err := s.db.Query(`
+		SELECT c.sha, c.message, c.author_email, c.timestamp, c.additions, c.deletions
+		FROM commits c
+		JOIN edges e ON e.from_node = 'commit:' || c.sha
+		WHERE e.to_node = ? AND e.type = 'MODIFIES'
+		ORDER BY c.timestamp DESC
+		LIMIT ?
+	`, "file:"+filePath, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var commits []Commit
+	for rows.Next() {
+		var c Commit
+		if err := rows.Scan(&c.SHA, &c.Message, &c.AuthorEmail, &c.Timestamp, &c.Additions, &c.Deletions); err != nil {
+			return nil, err
+		}
+		commits = append(commits, c)
+	}
+	return commits, rows.Err()
+}
+
+// QueryCommitBySHA returns a single commit by SHA.
+func (s *Store) QueryCommitBySHA(sha string) (*Commit, error) {
+	var c Commit
+	err := s.db.QueryRow(
+		"SELECT sha, message, author_email, timestamp, additions, deletions FROM commits WHERE sha = ?",
+		sha,
+	).Scan(&c.SHA, &c.Message, &c.AuthorEmail, &c.Timestamp, &c.Additions, &c.Deletions)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &c, nil
+}
+
+// CommitCount returns the number of stored commits.
+func (s *Store) CommitCount() (int, error) {
+	var count int
+	err := s.db.QueryRow("SELECT COUNT(*) FROM commits").Scan(&count)
+	return count, err
+}
+
+// AuthorCount returns the number of stored authors.
+func (s *Store) AuthorCount() (int, error) {
+	var count int
+	err := s.db.QueryRow("SELECT COUNT(*) FROM authors").Scan(&count)
+	return count, err
+}
+
+// DeleteHistory removes all commits, authors, and history-related edges.
+func (s *Store) DeleteHistory() error {
+	_, err := s.db.Exec(`
+		DELETE FROM commits;
+		DELETE FROM authors;
+		DELETE FROM edges WHERE type IN ('MODIFIES', 'AUTHORED_BY', 'CO_CHANGED');
+	`)
+	return err
+}
+
+// CoChangedCount returns the number of CO_CHANGED edges.
+func (s *Store) CoChangedCount() (int, error) {
+	var count int
+	err := s.db.QueryRow("SELECT COUNT(*) FROM edges WHERE type = 'CO_CHANGED'").Scan(&count)
+	return count, err
+}
+
+// QueryCoChanged returns files that co-changed with the given file, filtered by minimum count.
+func (s *Store) QueryCoChanged(filePath string, minCount int) ([]CoChangedResult, error) {
+	nodeID := "file:" + filePath
+	rows, err := s.db.Query(`
+		SELECT to_node, weight FROM edges
+		WHERE from_node = ? AND type = 'CO_CHANGED' AND weight >= ?
+		UNION ALL
+		SELECT from_node, weight FROM edges
+		WHERE to_node = ? AND type = 'CO_CHANGED' AND weight >= ?
+		ORDER BY weight DESC
+	`, nodeID, minCount, nodeID, minCount)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var results []CoChangedResult
+	for rows.Next() {
+		var r CoChangedResult
+		var nodeRef string
+		if err := rows.Scan(&nodeRef, &r.Count); err != nil {
+			return nil, err
+		}
+		// Strip "file:" prefix
+		r.File = strings.TrimPrefix(nodeRef, "file:")
+		results = append(results, r)
+	}
+	return results, rows.Err()
 }
 
 func (s *Store) queryNodes(query string, args ...any) ([]Node, error) {
