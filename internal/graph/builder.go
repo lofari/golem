@@ -111,8 +111,7 @@ func (b *Builder) BuildFull(projectPath string) error {
 	// Index git history (best-effort — project may not be a git repo)
 	hb := NewHistoryBuilder(b.store, b.historyDepth)
 	if err := hb.Build(projectPath); err != nil {
-		// Non-fatal: history is optional
-		_ = err
+		// Non-fatal: history is optional (project may not be a git repo)
 	}
 
 	// Record indexing metadata
@@ -200,8 +199,7 @@ func (b *Builder) Sync(projectPath string) error {
 	// Sync git history (best-effort — project may not be a git repo)
 	hb := NewHistoryBuilder(b.store, b.historyDepth)
 	if err := hb.Sync(projectPath); err != nil {
-		// Non-fatal: history is optional
-		_ = err
+		// Non-fatal: history is optional (project may not be a git repo)
 	}
 
 	// Update metadata
