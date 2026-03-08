@@ -12,6 +12,7 @@ import (
 
 	"github.com/lofari/golem/internal/config"
 	golemctx "github.com/lofari/golem/internal/ctx"
+	"github.com/lofari/golem/internal/git"
 )
 
 // ProjectInfo is the API representation of a registered project.
@@ -150,6 +151,36 @@ func (s *Server) handleUpdateProjectConfig(w http.ResponseWriter, r *http.Reques
 func (s *Server) handleGetGlobalConfig(w http.ResponseWriter, r *http.Request) {
 	cfg := config.Load(config.GlobalPath(), "")
 	writeJSON(w, http.StatusOK, cfg)
+}
+
+func (s *Server) handleDiff(w http.ResponseWriter, r *http.Request) {
+	p, ok := s.getProject(r.PathValue("id"))
+	if !ok {
+		writeError(w, http.StatusNotFound, "project not found")
+		return
+	}
+
+	baseRef := r.URL.Query().Get("ref")
+	file := r.URL.Query().Get("file")
+
+	// If a specific file is requested, return its patch
+	if file != "" {
+		patch, err := git.DiffPatch(p.path, baseRef, file)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]string{"patch": patch})
+		return
+	}
+
+	summary, err := git.DiffSummary(p.path, baseRef)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, summary)
 }
 
 func (s *Server) handleUpdateGlobalConfig(w http.ResponseWriter, r *http.Request) {
