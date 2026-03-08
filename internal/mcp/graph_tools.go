@@ -712,6 +712,196 @@ func (gs *GolemServer) handleFindCoChanged(_ context.Context, req mcp.CallToolRe
 	return mcp.NewToolResultText(string(out)), nil
 }
 
+// --- find_execution_failures ---
+
+func findExecutionFailuresTool() mcp.Tool {
+	return mcp.Tool{
+		Name:        "find_execution_failures",
+		Description: "Find commands that failed during agent execution. Returns error details, stack traces, and affected files.",
+		InputSchema: mcp.ToolInputSchema{
+			Type: "object",
+			Properties: map[string]any{
+				"session": map[string]string{"type": "string", "description": "Session ID (default: latest session)"},
+				"file":    map[string]string{"type": "string", "description": "Filter failures by file path"},
+			},
+		},
+	}
+}
+
+func (gs *GolemServer) handleFindExecutionFailures(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	args := req.GetArguments()
+	sessionID := getStr(args, "session")
+	fileFilter := getStr(args, "file")
+
+	store, err := gs.openGraph()
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("opening graph: %v", err)), nil
+	}
+	defer store.Close()
+
+	if sessionID == "" {
+		latest, err := store.LatestExecution()
+		if err != nil || latest == nil {
+			return mcp.NewToolResultText("no execution sessions found"), nil
+		}
+		sessionID = latest.SessionID
+	}
+
+	failedCmds, err := store.QueryFailedCommands(sessionID)
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("querying failures: %v", err)), nil
+	}
+
+	type failureResult struct {
+		Command       string   `json:"command"`
+		ExitCode      int      `json:"exitCode"`
+		ErrorMessage  string   `json:"errorMessage,omitempty"`
+		StackTrace    string   `json:"stackTrace,omitempty"`
+		FilesInvolved []string `json:"filesInvolved,omitempty"`
+	}
+
+	var results []failureResult
+	for _, cmd := range failedCmds {
+		errors, _ := store.QueryErrorsBySession(sessionID)
+		var errMsg, stackTrace string
+		for _, e := range errors {
+			if e.CommandID == cmd.ID {
+				errMsg = e.Message
+				stackTrace = e.StackTrace
+				break
+			}
+		}
+
+		edges, _ := store.EdgesFrom(cmd.ID)
+		var files []string
+		for _, e := range edges {
+			if e.Type == "ACCESSES" {
+				files = append(files, strings.TrimPrefix(e.To, "file:"))
+			}
+		}
+
+		if fileFilter != "" {
+			matched := false
+			for _, f := range files {
+				if strings.Contains(f, fileFilter) {
+					matched = true
+					break
+				}
+			}
+			if !matched {
+				continue
+			}
+		}
+
+		results = append(results, failureResult{
+			Command:       cmd.Command,
+			ExitCode:      cmd.ExitCode,
+			ErrorMessage:  errMsg,
+			StackTrace:    stackTrace,
+			FilesInvolved: files,
+		})
+	}
+
+	if len(results) == 0 {
+		return mcp.NewToolResultText(fmt.Sprintf("no failures found in session %q", sessionID)), nil
+	}
+
+	out, _ := json.MarshalIndent(results, "", "  ")
+	return mcp.NewToolResultText(string(out)), nil
+}
+
+// --- get_runtime_trace ---
+
+func getRuntimeTraceTool() mcp.Tool {
+	return mcp.Tool{
+		Name:        "get_runtime_trace",
+		Description: "Get a trace of commands executed during an agent session. Shows what happened and in what order.",
+		InputSchema: mcp.ToolInputSchema{
+			Type: "object",
+			Properties: map[string]any{
+				"session":        map[string]string{"type": "string", "description": "Session ID (default: latest session)"},
+				"command_filter": map[string]string{"type": "string", "description": "Filter commands by substring match"},
+			},
+		},
+	}
+}
+
+func (gs *GolemServer) handleGetRuntimeTrace(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	args := req.GetArguments()
+	sessionID := getStr(args, "session")
+	cmdFilter := getStr(args, "command_filter")
+
+	store, err := gs.openGraph()
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("opening graph: %v", err)), nil
+	}
+	defer store.Close()
+
+	if sessionID == "" {
+		latest, err := store.LatestExecution()
+		if err != nil || latest == nil {
+			return mcp.NewToolResultText("no execution sessions found"), nil
+		}
+		sessionID = latest.SessionID
+	}
+
+	cmds, err := store.QueryCommandsBySession(sessionID)
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("querying commands: %v", err)), nil
+	}
+
+	exec, _ := store.LatestExecution()
+
+	type cmdEntry struct {
+		Command       string   `json:"command"`
+		ExitCode      int      `json:"exitCode"`
+		FilesAccessed []string `json:"filesAccessed,omitempty"`
+		OutputPreview string   `json:"outputPreview,omitempty"`
+	}
+
+	type traceResult struct {
+		SessionID string     `json:"sessionId"`
+		Status    string     `json:"status"`
+		Commands  []cmdEntry `json:"commands"`
+	}
+
+	result := traceResult{SessionID: sessionID}
+	if exec != nil {
+		result.Status = exec.Status
+	}
+
+	for _, cmd := range cmds {
+		if cmdFilter != "" && !strings.Contains(cmd.Command, cmdFilter) {
+			continue
+		}
+
+		entry := cmdEntry{
+			Command:  cmd.Command,
+			ExitCode: cmd.ExitCode,
+		}
+
+		edges, _ := store.EdgesFrom(cmd.ID)
+		for _, e := range edges {
+			if e.Type == "ACCESSES" {
+				entry.FilesAccessed = append(entry.FilesAccessed, strings.TrimPrefix(e.To, "file:"))
+			}
+		}
+
+		if out, _ := store.QueryOutput(cmd.ID); out != nil && out.Stdout != "" {
+			lines := strings.SplitN(out.Stdout, "\n", 6)
+			if len(lines) > 5 {
+				lines = lines[:5]
+			}
+			entry.OutputPreview = strings.Join(lines, "\n")
+		}
+
+		result.Commands = append(result.Commands, entry)
+	}
+
+	out, _ := json.MarshalIndent(result, "", "  ")
+	return mcp.NewToolResultText(string(out)), nil
+}
+
 // getInt extracts an int from MCP arguments with a default.
 func getInt(args map[string]any, key string, defaultVal int) int {
 	v, ok := args[key]
