@@ -1,3 +1,4 @@
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/process.dart';
@@ -22,6 +23,7 @@ class _LaunchDialogState extends ConsumerState<LaunchDialog> {
   bool _mcp = true;
   int _parallel = 1;
   String _task = '';
+  String _pluginDir = '';
   bool _launching = false;
   bool _loaded = false;
 
@@ -46,6 +48,7 @@ class _LaunchDialogState extends ConsumerState<LaunchDialog> {
           _mcp = cfg.mcp;
           _parallel = cfg.parallel;
           if (cfg.model.isNotEmpty) _model = cfg.model;
+          if (cfg.pluginDir.isNotEmpty) _pluginDir = cfg.pluginDir;
           _loaded = true;
         });
       }
@@ -74,6 +77,7 @@ class _LaunchDialogState extends ConsumerState<LaunchDialog> {
             sandbox: _sandbox,
             mcp: _mcp,
             parallel: _parallel > 1 ? _parallel : null,
+            pluginDir: _pluginDir.isNotEmpty ? _pluginDir : null,
           ),
         ),
       );
@@ -140,6 +144,56 @@ class _LaunchDialogState extends ConsumerState<LaunchDialog> {
                     ),
                     style: const TextStyle(fontSize: 13),
                     onChanged: (v) => _task = v,
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          _pluginDir.isEmpty ? 'No plugin directory' : _pluginDir,
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: _pluginDir.isEmpty
+                                ? GolemTheme.textSecondary
+                                : GolemTheme.textPrimary,
+                            fontFamily: 'JetBrains Mono',
+                          ),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      if (_pluginDir.isNotEmpty)
+                        IconButton(
+                          icon: const Icon(Icons.clear, size: 16),
+                          color: GolemTheme.textSecondary,
+                          onPressed: () => setState(() => _pluginDir = ''),
+                          tooltip: 'Clear',
+                          splashRadius: 14,
+                          padding: EdgeInsets.zero,
+                          constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
+                        ),
+                      IconButton(
+                        icon: const Icon(Icons.folder_open, size: 16),
+                        color: GolemTheme.accent,
+                        onPressed: () async {
+                          final result = await FilePicker.platform.getDirectoryPath(
+                            dialogTitle: 'Select Plugin Directory',
+                          );
+                          if (result != null) setState(() => _pluginDir = result);
+                        },
+                        tooltip: 'Browse',
+                        splashRadius: 14,
+                        padding: EdgeInsets.zero,
+                        constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
+                      ),
+                    ],
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.only(top: 4),
+                    child: Text(
+                      'plugin-dir',
+                      style: TextStyle(fontSize: 10, color: GolemTheme.textSecondary),
+                    ),
                   ),
                 ],
               ),
