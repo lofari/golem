@@ -413,6 +413,81 @@ func (s *Store) InsertEdgeWithWeight(from, to, edgeType string, weight int) erro
 	return err
 }
 
+// QueryAuthorByEmail returns an author by email.
+func (s *Store) QueryAuthorByEmail(email string) (*Author, error) {
+	var a Author
+	err := s.db.QueryRow("SELECT email, name FROM authors WHERE email = ?", email).Scan(&a.Email, &a.Name)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &a, nil
+}
+
+// QueryRecentChanges returns commits that modified files matching the given node pattern, ordered by timestamp descending.
+// Pattern can be an exact node ID like "file:path" or a prefix like "file:dir/" for directory matching.
+func (s *Store) QueryRecentChanges(nodePattern string, isPrefix bool, limit int) ([]Commit, error) {
+	var rows *sql.Rows
+	var err error
+	if isPrefix {
+		rows, err = s.db.Query(`
+			SELECT DISTINCT c.sha, c.message, c.author_email, c.timestamp, c.additions, c.deletions
+			FROM commits c
+			JOIN edges e ON e.from_node = 'commit:' || c.sha
+			WHERE e.to_node LIKE ? AND e.type = 'MODIFIES'
+			ORDER BY c.timestamp DESC
+			LIMIT ?
+		`, nodePattern+"%", limit)
+	} else {
+		rows, err = s.db.Query(`
+			SELECT DISTINCT c.sha, c.message, c.author_email, c.timestamp, c.additions, c.deletions
+			FROM commits c
+			JOIN edges e ON e.from_node = 'commit:' || c.sha
+			WHERE e.to_node = ? AND e.type = 'MODIFIES'
+			ORDER BY c.timestamp DESC
+			LIMIT ?
+		`, nodePattern, limit)
+	}
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var commits []Commit
+	for rows.Next() {
+		var c Commit
+		if err := rows.Scan(&c.SHA, &c.Message, &c.AuthorEmail, &c.Timestamp, &c.Additions, &c.Deletions); err != nil {
+			return nil, err
+		}
+		commits = append(commits, c)
+	}
+	return commits, rows.Err()
+}
+
+// QueryFilesModifiedByCommit returns the file paths modified by a given commit SHA.
+func (s *Store) QueryFilesModifiedByCommit(sha string) ([]string, error) {
+	rows, err := s.db.Query(`
+		SELECT to_node FROM edges
+		WHERE from_node = ? AND type = 'MODIFIES'
+	`, "commit:"+sha)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var files []string
+	for rows.Next() {
+		var nodeRef string
+		if err := rows.Scan(&nodeRef); err != nil {
+			return nil, err
+		}
+		files = append(files, strings.TrimPrefix(nodeRef, "file:"))
+	}
+	return files, rows.Err()
+}
+
 // QueryCommitsByFile returns commits that modified the given file path, ordered by timestamp descending.
 func (s *Store) QueryCommitsByFile(filePath string, limit int) ([]Commit, error) {
 	rows, err := s.db.Query(`

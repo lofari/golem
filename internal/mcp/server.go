@@ -24,7 +24,7 @@ func NewServer(dir string) *GolemServer {
 // ListTools returns the names of all registered tools.
 func (gs *GolemServer) ListTools() []string {
 	// Tool names are registered in registerTools
-	return []string{"mark_task", "set_phase", "set_status", "add_decision", "add_pitfall", "add_locked", "log_session", "find_callers", "find_dependencies", "find_dependents", "graph_query"}
+	return []string{"mark_task", "set_phase", "set_status", "add_decision", "add_pitfall", "add_locked", "log_session", "find_callers", "find_dependencies", "find_dependents", "graph_query", "semantic_search", "find_recent_changes", "find_file_history", "find_co_changed"}
 }
 
 // ServeStdio runs the MCP server over stdin/stdout.
@@ -44,4 +44,8 @@ func (gs *GolemServer) registerTools() {
 	gs.mcpServer.AddTool(findDependenciesTool(), gs.handleFindDependencies)
 	gs.mcpServer.AddTool(findDependentsTool(), gs.handleFindDependents)
 	gs.mcpServer.AddTool(graphQueryTool(), gs.handleGraphQuery)
+	gs.mcpServer.AddTool(semanticSearchTool(), gs.handleSemanticSearch)
+	gs.mcpServer.AddTool(findRecentChangesTool(), gs.handleFindRecentChanges)
+	gs.mcpServer.AddTool(findFileHistoryTool(), gs.handleFindFileHistory)
+	gs.mcpServer.AddTool(findCoChangedTool(), gs.handleFindCoChanged)
 }

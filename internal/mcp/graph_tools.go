@@ -10,6 +10,7 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 
 	"github.com/lofari/golem/internal/graph"
+	"github.com/lofari/golem/internal/graph/embed"
 )
 
 // openGraph opens the graph database for the project directory.
@@ -395,6 +396,319 @@ func (gs *GolemServer) handleGraphQuery(_ context.Context, req mcp.CallToolReque
 	}
 
 	out, _ := json.MarshalIndent(res, "", "  ")
+	return mcp.NewToolResultText(string(out)), nil
+}
+
+// --- semantic_search ---
+
+func semanticSearchTool() mcp.Tool {
+	return mcp.Tool{
+		Name:        "semantic_search",
+		Description: "Search code and documentation by natural language query. Returns the most semantically similar nodes in the knowledge graph.",
+		InputSchema: mcp.ToolInputSchema{
+			Type: "object",
+			Properties: map[string]any{
+				"query": map[string]any{
+					"type":        "string",
+					"description": "Natural language search query (e.g. 'authentication logic', 'database connection handling')",
+				},
+				"limit": map[string]any{
+					"type":        "integer",
+					"description": "Maximum number of results (default: 10, max: 50)",
+				},
+				"types": map[string]any{
+					"type":        "array",
+					"items":       map[string]any{"type": "string"},
+					"description": "Filter by node types: function, method, type, file, document, section (default: all)",
+				},
+			},
+			Required: []string{"query"},
+		},
+	}
+}
+
+func (gs *GolemServer) handleSemanticSearch(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	args := req.GetArguments()
+
+	query, ok := args["query"].(string)
+	if !ok || query == "" {
+		return mcp.NewToolResultError("query is required"), nil
+	}
+
+	limit := getInt(args, "limit", 10)
+	if limit > 50 {
+		limit = 50
+	}
+
+	store, err := gs.openGraph()
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("open graph: %v", err)), nil
+	}
+	defer store.Close()
+
+	// Check if embeddings exist
+	count, err := store.EmbeddingCount()
+	if err != nil || count == 0 {
+		return mcp.NewToolResultError("no embeddings found — run 'golem graph embed' first"), nil
+	}
+
+	// Open embedder for query embedding
+	modelDir, err := embed.EnsureModel(embed.DefaultModelID, embed.DefaultModelDir())
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("load model: %v", err)), nil
+	}
+	embedder, err := embed.NewONNXEmbedder(modelDir)
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("create embedder: %v", err)), nil
+	}
+	defer embedder.Close()
+
+	// Embed query
+	vecs, err := embedder.Embed(context.Background(), []string{query})
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("embed query: %v", err)), nil
+	}
+
+	// Search
+	results, err := store.SearchSimilar(vecs[0], limit)
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("search: %v", err)), nil
+	}
+
+	// Resolve nodes and apply type filter
+	typeFilter := map[string]bool{}
+	if types, ok := args["types"].([]any); ok {
+		for _, t := range types {
+			if s, ok := t.(string); ok {
+				typeFilter[s] = true
+			}
+		}
+	}
+
+	type searchResult struct {
+		Name  string  `json:"name"`
+		Path  string  `json:"path"`
+		Line  int     `json:"line,omitempty"`
+		Type  string  `json:"type"`
+		Score float32 `json:"score"`
+	}
+
+	var output []searchResult
+	for _, r := range results {
+		node, err := store.NodeByID(r.NodeID)
+		if err != nil || node == nil {
+			continue
+		}
+		if len(typeFilter) > 0 && !typeFilter[node.Type] {
+			continue
+		}
+		output = append(output, searchResult{
+			Name:  node.Name,
+			Path:  node.Path,
+			Line:  node.Line,
+			Type:  node.Type,
+			Score: 1.0 - r.Distance,
+		})
+	}
+
+	data, _ := json.Marshal(output)
+	return mcp.NewToolResultText(string(data)), nil
+}
+
+// --- find_recent_changes ---
+
+func findRecentChangesTool() mcp.Tool {
+	return mcp.Tool{
+		Name:        "find_recent_changes",
+		Description: "Find recent commits that modified a file or directory. Returns commit details with changed files.",
+		InputSchema: mcp.ToolInputSchema{
+			Type: "object",
+			Properties: map[string]any{
+				"path":  map[string]string{"type": "string", "description": "File or directory path"},
+				"limit": map[string]string{"type": "integer", "description": "Maximum number of commits to return (default 10, max 50)"},
+			},
+			Required: []string{"path"},
+		},
+	}
+}
+
+func (gs *GolemServer) handleFindRecentChanges(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	args := req.GetArguments()
+	path := getStr(args, "path")
+	limit := getInt(args, "limit", 10)
+	if limit < 1 {
+		limit = 1
+	}
+	if limit > 50 {
+		limit = 50
+	}
+
+	store, err := gs.openGraph()
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("opening graph: %v", err)), nil
+	}
+	defer store.Close()
+
+	// Try exact file match first, then prefix match for directories
+	nodeID := "file:" + path
+	commits, err := store.QueryRecentChanges(nodeID, false, limit)
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("querying commits: %v", err)), nil
+	}
+
+	// If no exact match, try prefix match (directory)
+	if len(commits) == 0 {
+		prefix := "file:" + path
+		if !strings.HasSuffix(prefix, "/") {
+			prefix += "/"
+		}
+		commits, err = store.QueryRecentChanges(prefix, true, limit)
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("querying commits: %v", err)), nil
+		}
+	}
+
+	if len(commits) == 0 {
+		return mcp.NewToolResultText(fmt.Sprintf("no recent changes found for %q", path)), nil
+	}
+
+	type commitResult struct {
+		SHA       string   `json:"sha"`
+		Message   string   `json:"message"`
+		Author    string   `json:"author"`
+		Timestamp int64    `json:"timestamp"`
+		Files     []string `json:"files"`
+	}
+
+	var results []commitResult
+	for _, c := range commits {
+		author := c.AuthorEmail
+		if a, _ := store.QueryAuthorByEmail(c.AuthorEmail); a != nil {
+			author = a.Name
+		}
+		files, _ := store.QueryFilesModifiedByCommit(c.SHA)
+		results = append(results, commitResult{
+			SHA:       c.SHA,
+			Message:   c.Message,
+			Author:    author,
+			Timestamp: c.Timestamp,
+			Files:     files,
+		})
+	}
+
+	out, _ := json.MarshalIndent(results, "", "  ")
+	return mcp.NewToolResultText(string(out)), nil
+}
+
+// --- find_file_history ---
+
+func findFileHistoryTool() mcp.Tool {
+	return mcp.Tool{
+		Name:        "find_file_history",
+		Description: "Get the commit history for a specific file. Shows who changed it and when.",
+		InputSchema: mcp.ToolInputSchema{
+			Type: "object",
+			Properties: map[string]any{
+				"file":  map[string]string{"type": "string", "description": "File path"},
+				"limit": map[string]string{"type": "integer", "description": "Maximum number of commits to return (default 20, max 100)"},
+			},
+			Required: []string{"file"},
+		},
+	}
+}
+
+func (gs *GolemServer) handleFindFileHistory(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	args := req.GetArguments()
+	file := getStr(args, "file")
+	limit := getInt(args, "limit", 20)
+	if limit < 1 {
+		limit = 1
+	}
+	if limit > 100 {
+		limit = 100
+	}
+
+	store, err := gs.openGraph()
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("opening graph: %v", err)), nil
+	}
+	defer store.Close()
+
+	commits, err := store.QueryCommitsByFile(file, limit)
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("querying file history: %v", err)), nil
+	}
+
+	if len(commits) == 0 {
+		return mcp.NewToolResultText(fmt.Sprintf("no commit history found for %q", file)), nil
+	}
+
+	type historyEntry struct {
+		SHA       string `json:"sha"`
+		Message   string `json:"message"`
+		Author    string `json:"author"`
+		Timestamp int64  `json:"timestamp"`
+	}
+
+	var results []historyEntry
+	for _, c := range commits {
+		author := c.AuthorEmail
+		if a, _ := store.QueryAuthorByEmail(c.AuthorEmail); a != nil {
+			author = a.Name
+		}
+		results = append(results, historyEntry{
+			SHA:       c.SHA,
+			Message:   c.Message,
+			Author:    author,
+			Timestamp: c.Timestamp,
+		})
+	}
+
+	out, _ := json.MarshalIndent(results, "", "  ")
+	return mcp.NewToolResultText(string(out)), nil
+}
+
+// --- find_co_changed ---
+
+func findCoChangedTool() mcp.Tool {
+	return mcp.Tool{
+		Name:        "find_co_changed",
+		Description: "Find files that frequently change together with a given file. Identifies coupling between files.",
+		InputSchema: mcp.ToolInputSchema{
+			Type: "object",
+			Properties: map[string]any{
+				"file":      map[string]string{"type": "string", "description": "File path"},
+				"min_count": map[string]string{"type": "integer", "description": "Minimum co-change count to include (default 3)"},
+			},
+			Required: []string{"file"},
+		},
+	}
+}
+
+func (gs *GolemServer) handleFindCoChanged(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	args := req.GetArguments()
+	file := getStr(args, "file")
+	minCount := getInt(args, "min_count", 3)
+	if minCount < 1 {
+		minCount = 1
+	}
+
+	store, err := gs.openGraph()
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("opening graph: %v", err)), nil
+	}
+	defer store.Close()
+
+	results, err := store.QueryCoChanged(file, minCount)
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("querying co-changed files: %v", err)), nil
+	}
+
+	if len(results) == 0 {
+		return mcp.NewToolResultText(fmt.Sprintf("no co-changed files found for %q with min_count=%d", file, minCount)), nil
+	}
+
+	out, _ := json.MarshalIndent(results, "", "  ")
 	return mcp.NewToolResultText(string(out)), nil
 }
 
