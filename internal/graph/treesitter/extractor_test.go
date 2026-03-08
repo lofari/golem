@@ -3,7 +3,7 @@ package treesitter
 import (
 	"testing"
 
-	"github.com/lofari/golem/internal/graph"
+	"github.com/lofari/golem/internal/graph/model"
 )
 
 func TestExtractGo(t *testing.T) {
@@ -30,7 +30,7 @@ func main() {
 	nodes, edges := Extract("main.go", lang, tree, src)
 
 	// Should have: file node + function nodes + type node
-	nodeMap := make(map[string]graph.Node)
+	nodeMap := make(map[string]model.Node)
 	for _, n := range nodes {
 		nodeMap[n.ID] = n
 	}
@@ -99,7 +99,7 @@ def hello():
 
 	nodes, edges := Extract("app.py", lang, tree, src)
 
-	nodeMap := make(map[string]graph.Node)
+	nodeMap := make(map[string]model.Node)
 	for _, n := range nodes {
 		nodeMap[n.ID] = n
 	}

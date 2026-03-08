@@ -5,17 +5,17 @@ import (
 	"strings"
 
 	sitter "github.com/smacker/go-tree-sitter"
-	"github.com/lofari/golem/internal/graph"
+	"github.com/lofari/golem/internal/graph/model"
 )
 
 // Extract walks a parsed tree and produces graph nodes and edges.
-func Extract(filePath, lang string, tree *sitter.Tree, src []byte) ([]graph.Node, []graph.Edge) {
-	var nodes []graph.Node
-	var edges []graph.Edge
+func Extract(filePath, lang string, tree *sitter.Tree, src []byte) ([]model.Node, []model.Edge) {
+	var nodes []model.Node
+	var edges []model.Edge
 
 	// File node
 	fileID := fmt.Sprintf("file:%s", filePath)
-	nodes = append(nodes, graph.Node{
+	nodes = append(nodes, model.Node{
 		ID:   fileID,
 		Type: "file",
 		Name: filePath,
@@ -30,8 +30,8 @@ func Extract(filePath, lang string, tree *sitter.Tree, src []byte) ([]graph.Node
 }
 
 // ExtractFileOnly creates a file-only node for unsupported languages.
-func ExtractFileOnly(filePath string) ([]graph.Node, []graph.Edge) {
-	return []graph.Node{{
+func ExtractFileOnly(filePath string) ([]model.Node, []model.Edge) {
+	return []model.Node{{
 		ID:   fmt.Sprintf("file:%s", filePath),
 		Type: "file",
 		Name: filePath,
@@ -40,7 +40,7 @@ func ExtractFileOnly(filePath string) ([]graph.Node, []graph.Edge) {
 	}}, nil
 }
 
-func walkNode(node *sitter.Node, filePath, fileID, lang string, src []byte, nodes *[]graph.Node, edges *[]graph.Edge) {
+func walkNode(node *sitter.Node, filePath, fileID, lang string, src []byte, nodes *[]model.Node, edges *[]model.Edge) {
 	nodeType := node.Type()
 
 	switch lang {
@@ -63,48 +63,48 @@ func walkNode(node *sitter.Node, filePath, fileID, lang string, src []byte, node
 
 // --- Go ---
 
-func extractGo(node *sitter.Node, nodeType, filePath, fileID string, src []byte, nodes *[]graph.Node, edges *[]graph.Edge) {
+func extractGo(node *sitter.Node, nodeType, filePath, fileID string, src []byte, nodes *[]model.Node, edges *[]model.Edge) {
 	switch nodeType {
 	case "function_declaration":
 		name := childContentByField(node, "name", src)
 		if name != "" {
 			id := fmt.Sprintf("fn:%s:%s", filePath, name)
-			*nodes = append(*nodes, graph.Node{
+			*nodes = append(*nodes, model.Node{
 				ID:   id,
 				Type: "function",
 				Name: name,
 				Path: filePath,
 				Line: int(node.StartPoint().Row) + 1,
 			})
-			*edges = append(*edges, graph.Edge{From: fileID, To: id, Type: "DEFINES"})
+			*edges = append(*edges, model.Edge{From: fileID, To: id, Type: "DEFINES"})
 		}
 
 	case "method_declaration":
 		name := childContentByField(node, "name", src)
 		if name != "" {
 			id := fmt.Sprintf("method:%s:%s", filePath, name)
-			*nodes = append(*nodes, graph.Node{
+			*nodes = append(*nodes, model.Node{
 				ID:   id,
 				Type: "method",
 				Name: name,
 				Path: filePath,
 				Line: int(node.StartPoint().Row) + 1,
 			})
-			*edges = append(*edges, graph.Edge{From: fileID, To: id, Type: "DEFINES"})
+			*edges = append(*edges, model.Edge{From: fileID, To: id, Type: "DEFINES"})
 		}
 
 	case "type_spec":
 		name := childContentByField(node, "name", src)
 		if name != "" {
 			id := fmt.Sprintf("type:%s:%s", filePath, name)
-			*nodes = append(*nodes, graph.Node{
+			*nodes = append(*nodes, model.Node{
 				ID:   id,
 				Type: "type",
 				Name: name,
 				Path: filePath,
 				Line: int(node.StartPoint().Row) + 1,
 			})
-			*edges = append(*edges, graph.Edge{From: fileID, To: id, Type: "DEFINES"})
+			*edges = append(*edges, model.Edge{From: fileID, To: id, Type: "DEFINES"})
 		}
 
 	case "import_spec":
@@ -112,7 +112,7 @@ func extractGo(node *sitter.Node, nodeType, filePath, fileID string, src []byte,
 		path = strings.Trim(path, "\"")
 		if path != "" {
 			pkgID := fmt.Sprintf("pkg:%s", path)
-			*edges = append(*edges, graph.Edge{From: fileID, To: pkgID, Type: "IMPORTS"})
+			*edges = append(*edges, model.Edge{From: fileID, To: pkgID, Type: "IMPORTS"})
 		}
 
 	case "call_expression":
@@ -125,7 +125,7 @@ func extractGo(node *sitter.Node, nodeType, filePath, fileID string, src []byte,
 				// Find enclosing function to link CALLS edge
 				parent := findEnclosingFunc(node, filePath, src)
 				if parent != "" {
-					*edges = append(*edges, graph.Edge{From: parent, To: callID, Type: "CALLS"})
+					*edges = append(*edges, model.Edge{From: parent, To: callID, Type: "CALLS"})
 				}
 			}
 		}
@@ -134,7 +134,7 @@ func extractGo(node *sitter.Node, nodeType, filePath, fileID string, src []byte,
 
 // --- Python ---
 
-func extractPython(node *sitter.Node, nodeType, filePath, fileID string, src []byte, nodes *[]graph.Node, edges *[]graph.Edge) {
+func extractPython(node *sitter.Node, nodeType, filePath, fileID string, src []byte, nodes *[]model.Node, edges *[]model.Edge) {
 	switch nodeType {
 	case "function_definition":
 		name := childContentByField(node, "name", src)
@@ -147,28 +147,28 @@ func extractPython(node *sitter.Node, nodeType, filePath, fileID string, src []b
 				prefix = "method"
 			}
 			id := fmt.Sprintf("%s:%s:%s", prefix, filePath, name)
-			*nodes = append(*nodes, graph.Node{
+			*nodes = append(*nodes, model.Node{
 				ID:   id,
 				Type: nType,
 				Name: name,
 				Path: filePath,
 				Line: int(node.StartPoint().Row) + 1,
 			})
-			*edges = append(*edges, graph.Edge{From: fileID, To: id, Type: "DEFINES"})
+			*edges = append(*edges, model.Edge{From: fileID, To: id, Type: "DEFINES"})
 		}
 
 	case "class_definition":
 		name := childContentByField(node, "name", src)
 		if name != "" {
 			id := fmt.Sprintf("type:%s:%s", filePath, name)
-			*nodes = append(*nodes, graph.Node{
+			*nodes = append(*nodes, model.Node{
 				ID:   id,
 				Type: "type",
 				Name: name,
 				Path: filePath,
 				Line: int(node.StartPoint().Row) + 1,
 			})
-			*edges = append(*edges, graph.Edge{From: fileID, To: id, Type: "DEFINES"})
+			*edges = append(*edges, model.Edge{From: fileID, To: id, Type: "DEFINES"})
 		}
 
 	case "import_statement", "import_from_statement":
@@ -179,55 +179,55 @@ func extractPython(node *sitter.Node, nodeType, filePath, fileID string, src []b
 		if len(parts) > 0 {
 			mod := parts[0]
 			pkgID := fmt.Sprintf("pkg:%s", mod)
-			*edges = append(*edges, graph.Edge{From: fileID, To: pkgID, Type: "IMPORTS"})
+			*edges = append(*edges, model.Edge{From: fileID, To: pkgID, Type: "IMPORTS"})
 		}
 	}
 }
 
 // --- JavaScript / TypeScript ---
 
-func extractJS(node *sitter.Node, nodeType, filePath, fileID string, src []byte, nodes *[]graph.Node, edges *[]graph.Edge) {
+func extractJS(node *sitter.Node, nodeType, filePath, fileID string, src []byte, nodes *[]model.Node, edges *[]model.Edge) {
 	switch nodeType {
 	case "function_declaration":
 		name := childContentByField(node, "name", src)
 		if name != "" {
 			id := fmt.Sprintf("fn:%s:%s", filePath, name)
-			*nodes = append(*nodes, graph.Node{
+			*nodes = append(*nodes, model.Node{
 				ID:   id,
 				Type: "function",
 				Name: name,
 				Path: filePath,
 				Line: int(node.StartPoint().Row) + 1,
 			})
-			*edges = append(*edges, graph.Edge{From: fileID, To: id, Type: "DEFINES"})
+			*edges = append(*edges, model.Edge{From: fileID, To: id, Type: "DEFINES"})
 		}
 
 	case "class_declaration":
 		name := childContentByField(node, "name", src)
 		if name != "" {
 			id := fmt.Sprintf("type:%s:%s", filePath, name)
-			*nodes = append(*nodes, graph.Node{
+			*nodes = append(*nodes, model.Node{
 				ID:   id,
 				Type: "type",
 				Name: name,
 				Path: filePath,
 				Line: int(node.StartPoint().Row) + 1,
 			})
-			*edges = append(*edges, graph.Edge{From: fileID, To: id, Type: "DEFINES"})
+			*edges = append(*edges, model.Edge{From: fileID, To: id, Type: "DEFINES"})
 		}
 
 	case "method_definition":
 		name := childContentByField(node, "name", src)
 		if name != "" {
 			id := fmt.Sprintf("method:%s:%s", filePath, name)
-			*nodes = append(*nodes, graph.Node{
+			*nodes = append(*nodes, model.Node{
 				ID:   id,
 				Type: "method",
 				Name: name,
 				Path: filePath,
 				Line: int(node.StartPoint().Row) + 1,
 			})
-			*edges = append(*edges, graph.Edge{From: fileID, To: id, Type: "DEFINES"})
+			*edges = append(*edges, model.Edge{From: fileID, To: id, Type: "DEFINES"})
 		}
 
 	case "import_statement":
@@ -238,7 +238,7 @@ func extractJS(node *sitter.Node, nodeType, filePath, fileID string, src []byte,
 				mod := strings.Trim(child.Content(src), "\"'`")
 				if mod != "" {
 					pkgID := fmt.Sprintf("pkg:%s", mod)
-					*edges = append(*edges, graph.Edge{From: fileID, To: pkgID, Type: "IMPORTS"})
+					*edges = append(*edges, model.Edge{From: fileID, To: pkgID, Type: "IMPORTS"})
 				}
 			}
 		}
