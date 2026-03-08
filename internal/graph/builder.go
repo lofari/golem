@@ -2,12 +2,14 @@ package graph
 
 import (
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
 
+	"github.com/lofari/golem/internal/graph/markdown"
 	"github.com/lofari/golem/internal/graph/treesitter"
 )
 
@@ -27,12 +29,18 @@ var skipDirs = map[string]bool{
 
 // Builder constructs and updates the code graph.
 type Builder struct {
-	store *Store
+	store        *Store
+	historyDepth int
 }
 
-// NewBuilder creates a new graph builder.
-func NewBuilder(store *Store) *Builder {
-	return &Builder{store: store}
+// NewBuilder creates a new graph builder. An optional historyDepth controls
+// how many git commits are indexed (default 500).
+func NewBuilder(store *Store, historyDepth ...int) *Builder {
+	depth := 500
+	if len(historyDepth) > 0 && historyDepth[0] > 0 {
+		depth = historyDepth[0]
+	}
+	return &Builder{store: store, historyDepth: depth}
 }
 
 // BuildFull does a complete rebuild of the graph from the project directory.
@@ -95,6 +103,18 @@ func (b *Builder) BuildFull(projectPath string) error {
 		return fmt.Errorf("inserting graph: %w", err)
 	}
 
+	// Index documentation
+	if err := b.indexDocs(projectPath, allNodes); err != nil {
+		return fmt.Errorf("index docs: %w", err)
+	}
+
+	// Index git history (best-effort — project may not be a git repo)
+	hb := NewHistoryBuilder(b.store, b.historyDepth)
+	if err := hb.Build(projectPath); err != nil {
+		// Non-fatal: history is optional
+		_ = err
+	}
+
 	// Record indexing metadata
 	b.store.SetMeta("last_indexed", time.Now().Format(time.RFC3339))
 	if sha := gitHeadSHA(projectPath); sha != "" {
@@ -128,9 +148,14 @@ func (b *Builder) Sync(projectPath string) error {
 		return nil // nothing to update
 	}
 
+	hasChangedDocs := false
 	for _, relPath := range changed {
 		// Remove old nodes/edges for this file
 		b.store.DeleteByPath(relPath)
+
+		if strings.HasSuffix(relPath, ".md") {
+			hasChangedDocs = true
+		}
 
 		// Check if file still exists
 		fullPath := filepath.Join(projectPath, relPath)
@@ -160,12 +185,117 @@ func (b *Builder) Sync(projectPath string) error {
 		b.store.InsertBatch(nodes, edges)
 	}
 
+	// Re-index docs if any markdown files changed
+	if hasChangedDocs {
+		var allCodeNodes []Node
+		for _, typ := range []string{"function", "method", "type"} {
+			nodes, _ := b.store.NodesByType(typ)
+			allCodeNodes = append(allCodeNodes, nodes...)
+		}
+		if err := b.indexDocs(projectPath, allCodeNodes); err != nil {
+			return fmt.Errorf("re-index docs: %w", err)
+		}
+	}
+
+	// Sync git history (best-effort — project may not be a git repo)
+	hb := NewHistoryBuilder(b.store, b.historyDepth)
+	if err := hb.Sync(projectPath); err != nil {
+		// Non-fatal: history is optional
+		_ = err
+	}
+
 	// Update metadata
 	b.store.SetMeta("last_indexed", time.Now().Format(time.RFC3339))
 	if sha := gitHeadSHA(projectPath); sha != "" {
 		b.store.SetMeta("last_commit", sha)
 	}
 
+	return nil
+}
+
+// indexDocs walks markdown files, parses them, and creates document/section nodes with edges.
+func (b *Builder) indexDocs(projectPath string, existingNodes []Node) error {
+	// Build name->node lookup for code linking
+	nameIndex := map[string][]Node{}
+	for _, n := range existingNodes {
+		if n.Type == "function" || n.Type == "method" || n.Type == "type" {
+			nameIndex[n.Name] = append(nameIndex[n.Name], n)
+		}
+	}
+
+	var docNodes []Node
+	var docEdges []Edge
+
+	err := filepath.WalkDir(projectPath, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		if d.IsDir() {
+			if skipDirs[d.Name()] || strings.HasPrefix(d.Name(), ".") {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !strings.HasSuffix(path, ".md") {
+			return nil
+		}
+
+		relPath, _ := filepath.Rel(projectPath, path)
+		content, err := os.ReadFile(path)
+		if err != nil {
+			return nil
+		}
+
+		sections, err := markdown.ParseMarkdown(relPath, content)
+		if err != nil {
+			return nil
+		}
+		if len(sections) == 0 {
+			return nil
+		}
+
+		// Create document node
+		docID := fmt.Sprintf("doc:%s", relPath)
+		docNodes = append(docNodes, Node{
+			ID:   docID,
+			Type: "document",
+			Name: filepath.Base(relPath),
+			Path: relPath,
+			Line: 1,
+		})
+
+		for _, sec := range sections {
+			secID := fmt.Sprintf("sec:%s:%s", relPath, sec.Heading)
+			docNodes = append(docNodes, Node{
+				ID:   secID,
+				Type: "section",
+				Name: sec.Heading,
+				Path: relPath,
+				Line: sec.Line,
+			})
+
+			// CONTAINS edge: document -> section
+			docEdges = append(docEdges, Edge{From: docID, To: secID, Type: "CONTAINS"})
+
+			// REFERENCES edges: section -> code symbols found in backtick refs
+			for _, ref := range sec.Refs {
+				if targets, ok := nameIndex[ref]; ok {
+					for _, target := range targets {
+						docEdges = append(docEdges, Edge{From: secID, To: target.ID, Type: "REFERENCES"})
+					}
+				}
+			}
+		}
+
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+
+	if len(docNodes) > 0 {
+		return b.store.InsertBatch(docNodes, docEdges)
+	}
 	return nil
 }
 

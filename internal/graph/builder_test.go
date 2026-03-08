@@ -3,6 +3,7 @@ package graph
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -97,6 +98,67 @@ func TestBuildFullSkipsDirs(t *testing.T) {
 	nodes, _ := store.FindNodesByName("foo")
 	if len(nodes) != 0 {
 		t.Error("should not index node_modules")
+	}
+}
+
+func TestBuildFullWithDocs(t *testing.T) {
+	dir := t.TempDir()
+
+	// Create a Go source file with a function
+	os.WriteFile(filepath.Join(dir, "main.go"), []byte(`package main
+
+func StartServer() {}
+`), 0644)
+
+	// Create a markdown file that references the function
+	os.WriteFile(filepath.Join(dir, "README.md"), []byte("# My Project\n\nUse `StartServer` to start.\n\n## Setup\n\nRun the server.\n"), 0644)
+
+	dbPath := filepath.Join(t.TempDir(), "graph.db")
+	store, err := OpenStore(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+
+	b := NewBuilder(store)
+	if err := b.BuildFull(dir); err != nil {
+		t.Fatal(err)
+	}
+
+	// Check document node exists
+	docNodes, err := store.NodesByType("document")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(docNodes) != 1 {
+		t.Fatalf("expected 1 document node, got %d", len(docNodes))
+	}
+	if docNodes[0].Name != "README.md" {
+		t.Errorf("doc name = %q, want %q", docNodes[0].Name, "README.md")
+	}
+
+	// Check section nodes
+	secNodes, err := store.NodesByType("section")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(secNodes) != 2 {
+		t.Fatalf("expected 2 section nodes, got %d", len(secNodes))
+	}
+
+	// Check REFERENCES edge exists (README references StartServer)
+	edges, err := store.EdgesOfType("sec:README.md:My Project", "REFERENCES")
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, e := range edges {
+		if strings.Contains(e.To, "StartServer") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected REFERENCES edge to StartServer, edges = %v", edges)
 	}
 }
 
