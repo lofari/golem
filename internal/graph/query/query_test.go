@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/lofari/golem/internal/graph"
+	"github.com/lofari/golem/internal/graph/model"
 )
 
 func setupTestStore(t *testing.T) *graph.Store {
@@ -119,5 +120,113 @@ func TestRelated_NotFound(t *testing.T) {
 
 	if len(result.Nodes) != 0 {
 		t.Fatalf("expected empty result, got %d nodes", len(result.Nodes))
+	}
+}
+
+func setupTestExecution(t *testing.T) *graph.Store {
+	t.Helper()
+	dir := t.TempDir()
+	store, err := graph.OpenStore(filepath.Join(dir, "graph.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { store.Close() })
+
+	// Seed file nodes
+	store.InsertBatch(
+		[]graph.Node{
+			{ID: "file:main.go", Type: "file", Name: "main.go", Path: "main.go"},
+		},
+		nil,
+	)
+
+	// Seed execution data
+	store.InsertExecution(model.Execution{SessionID: "s1", StartedAt: 1000, Status: "completed"})
+	store.InsertCommand(model.Command{ID: "cmd:s1:1", SessionID: "s1", Seq: 1, Command: "go test ./...", ExitCode: 1})
+	store.InsertOutput(model.Output{CommandID: "cmd:s1:1", Stdout: "--- FAIL: TestFoo (0.01s)\nFAIL", Stderr: ""})
+	store.InsertError(model.Error{ID: "err:s1:1", CommandID: "cmd:s1:1", Message: "test failed"})
+	store.InsertTestResult(model.TestResult{ID: "test:s1:TestFoo", SessionID: "s1", Name: "TestFoo", Passed: false, DurationMs: 10})
+	store.InsertBatch(nil, []graph.Edge{
+		{From: "cmd:s1:1", To: "file:main.go", Type: "ACCESSES"},
+	})
+	store.FinalizeExecution("s1", 2000, "completed")
+
+	return store
+}
+
+func TestRuntimePath_Trace(t *testing.T) {
+	store := setupTestExecution(t)
+
+	result, err := RuntimePath(store, "s1", "trace", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	trace, ok := result.(*TraceResult)
+	if !ok {
+		t.Fatal("expected *TraceResult")
+	}
+
+	if trace.SessionID != "s1" {
+		t.Fatalf("expected session s1, got %s", trace.SessionID)
+	}
+	if len(trace.Commands) != 1 {
+		t.Fatalf("expected 1 command, got %d", len(trace.Commands))
+	}
+	if trace.Commands[0].Command != "go test ./..." {
+		t.Fatalf("unexpected command: %s", trace.Commands[0].Command)
+	}
+}
+
+func TestRuntimePath_Failures(t *testing.T) {
+	store := setupTestExecution(t)
+
+	result, err := RuntimePath(store, "s1", "failures", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	fr, ok := result.(*FailureResult)
+	if !ok {
+		t.Fatal("expected *FailureResult")
+	}
+
+	if len(fr.Failures) != 1 {
+		t.Fatalf("expected 1 failure, got %d", len(fr.Failures))
+	}
+	if fr.Failures[0].ErrorMessage != "test failed" {
+		t.Fatalf("unexpected error: %s", fr.Failures[0].ErrorMessage)
+	}
+	if len(fr.FailedTests) != 1 || fr.FailedTests[0].Name != "TestFoo" {
+		t.Fatalf("unexpected failed tests: %v", fr.FailedTests)
+	}
+}
+
+func TestRuntimePath_LatestSession(t *testing.T) {
+	store := setupTestExecution(t)
+
+	// Empty session should resolve to latest
+	result, err := RuntimePath(store, "", "trace", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	trace := result.(*TraceResult)
+	if trace.SessionID != "s1" {
+		t.Fatalf("expected latest session s1, got %s", trace.SessionID)
+	}
+}
+
+func TestRuntimePath_CommandFilter(t *testing.T) {
+	store := setupTestExecution(t)
+
+	result, err := RuntimePath(store, "s1", "trace", "nonexistent")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	trace := result.(*TraceResult)
+	if len(trace.Commands) != 0 {
+		t.Fatalf("expected 0 commands with filter, got %d", len(trace.Commands))
 	}
 }
