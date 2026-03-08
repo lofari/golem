@@ -60,10 +60,15 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/projects/{id}/processes/{procId}/stream", s.handleProcessStream)
 	s.mux.HandleFunc("GET /api/projects/{id}/watch", s.handleStateWatch)
 
+	// Diff
+	s.mux.HandleFunc("GET /api/projects/{id}/diff", s.handleDiff)
+
 	// Graph queries
 	s.mux.HandleFunc("GET /api/projects/{id}/graph/related", s.handleGraphRelated)
 	s.mux.HandleFunc("POST /api/projects/{id}/graph/search", s.handleGraphSearch)
 	s.mux.HandleFunc("GET /api/projects/{id}/graph/runtime-path", s.handleGraphRuntimePath)
+	s.mux.HandleFunc("GET /api/projects/{id}/graph/stats", s.handleGraphStats)
+	s.mux.HandleFunc("GET /api/projects/{id}/graph/context-map", s.handleContextMap)
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {

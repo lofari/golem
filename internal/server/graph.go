@@ -7,6 +7,7 @@ import (
 	"strconv"
 
 	"github.com/lofari/golem/internal/graph"
+	graphctx "github.com/lofari/golem/internal/graph/context"
 	"github.com/lofari/golem/internal/graph/embed"
 	"github.com/lofari/golem/internal/graph/query"
 )
@@ -110,6 +111,58 @@ func (s *Server) handleGraphSearch(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, results)
 }
 
+// GraphStatsResponse is the JSON shape for GET /graph/stats.
+type GraphStatsResponse struct {
+	TotalNodes     int            `json:"totalNodes"`
+	TotalEdges     int            `json:"totalEdges"`
+	NodeTypes      map[string]int `json:"nodeTypes"`
+	EdgeTypes      map[string]int `json:"edgeTypes"`
+	EmbeddingCount int            `json:"embeddingCount"`
+	EmbedModel     string         `json:"embedModel,omitempty"`
+	LastIndexed    string         `json:"lastIndexed,omitempty"`
+	CommitCount    int            `json:"commitCount"`
+	AuthorCount    int            `json:"authorCount"`
+	CoChangeCount  int            `json:"coChangeCount"`
+	ExecutionCount int            `json:"executionCount"`
+}
+
+func (s *Server) handleGraphStats(w http.ResponseWriter, r *http.Request) {
+	p, ok := s.getProject(r.PathValue("id"))
+	if !ok {
+		writeError(w, http.StatusNotFound, "project not found")
+		return
+	}
+
+	store, err := s.openProjectGraph(p)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "graph not found — run golem graph build")
+		return
+	}
+	defer store.Close()
+
+	stats, err := store.Stats()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	resp := GraphStatsResponse{
+		TotalNodes: stats.TotalNodes,
+		TotalEdges: stats.TotalEdges,
+		NodeTypes:  stats.NodeTypes,
+		EdgeTypes:  stats.EdgeTypes,
+	}
+	resp.EmbeddingCount, _ = store.EmbeddingCount()
+	resp.EmbedModel, _ = store.GetMeta("embed_model")
+	resp.LastIndexed, _ = store.GetMeta("last_indexed")
+	resp.CommitCount, _ = store.CommitCount()
+	resp.AuthorCount, _ = store.AuthorCount()
+	resp.CoChangeCount, _ = store.CoChangedCount()
+	resp.ExecutionCount, _ = store.ExecutionCount()
+
+	writeJSON(w, http.StatusOK, resp)
+}
+
 func (s *Server) handleGraphRuntimePath(w http.ResponseWriter, r *http.Request) {
 	p, ok := s.getProject(r.PathValue("id"))
 	if !ok {
@@ -142,4 +195,53 @@ func (s *Server) handleGraphRuntimePath(w http.ResponseWriter, r *http.Request) 
 	}
 
 	writeJSON(w, http.StatusOK, result)
+}
+
+func (s *Server) handleContextMap(w http.ResponseWriter, r *http.Request) {
+	p, ok := s.getProject(r.PathValue("id"))
+	if !ok {
+		writeError(w, http.StatusNotFound, "project not found")
+		return
+	}
+
+	task := r.URL.Query().Get("task")
+	if task == "" {
+		writeError(w, http.StatusBadRequest, "task parameter is required")
+		return
+	}
+
+	limitStr := r.URL.Query().Get("limit")
+	limit := 15
+	if limitStr != "" {
+		if v, err := strconv.Atoi(limitStr); err == nil {
+			limit = v
+		}
+	}
+
+	store, err := s.openProjectGraph(p)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "graph not found — run golem graph build")
+		return
+	}
+	defer store.Close()
+
+	modelDir, err := embed.EnsureModel(embed.DefaultModelID, embed.DefaultModelDir())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "loading embedding model: "+err.Error())
+		return
+	}
+	embedder, err := embed.NewONNXEmbedder(modelDir)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "creating embedder: "+err.Error())
+		return
+	}
+	defer embedder.Close()
+
+	cm, err := graphctx.BuildContextMap(store, embedder, task, limit)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, cm)
 }

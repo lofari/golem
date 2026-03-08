@@ -143,6 +143,33 @@ func TestGraphRuntimePath_Trace(t *testing.T) {
 	}
 }
 
+func TestHandleGraphStats(t *testing.T) {
+	srv, dir := setupGraphProject(t)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	id := srv.projectID(dir)
+	resp, err := http.Get(ts.URL + "/api/projects/" + id + "/graph/stats")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	var result map[string]interface{}
+	json.NewDecoder(resp.Body).Decode(&result)
+
+	if result["totalNodes"].(float64) != 3 {
+		t.Errorf("expected 3 nodes, got %v", result["totalNodes"])
+	}
+	if result["totalEdges"].(float64) != 2 {
+		t.Errorf("expected 2 edges, got %v", result["totalEdges"])
+	}
+}
+
 func TestGraphRuntimePath_InvalidMode(t *testing.T) {
 	srv, dir := setupGraphProject(t)
 	ts := httptest.NewServer(srv.Handler())
