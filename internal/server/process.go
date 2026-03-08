@@ -8,7 +8,10 @@ import (
 	"os"
 	"os/exec"
 	"sync"
+	"syscall"
 	"time"
+
+	"github.com/creack/pty/v2"
 )
 
 // LaunchRequest is the body for POST /api/projects/:id/processes.
@@ -141,6 +144,20 @@ func (s *Server) launchProcess(proj *project, req LaunchRequest) (*managedProces
 	cmd := exec.CommandContext(ctx, golemBin, args...)
 	cmd.Dir = proj.path
 
+	// Start with PTY
+	ptmx, err := pty.StartWithSize(cmd, &pty.Winsize{Rows: 40, Cols: 120})
+	if err != nil {
+		cancel()
+		return nil, fmt.Errorf("starting process with pty: %w", err)
+	}
+
+	// Set non-blocking to prevent deadlocks when processes spam output
+	if err := syscall.SetNonblock(int(ptmx.Fd()), true); err != nil {
+		ptmx.Close()
+		cancel()
+		return nil, fmt.Errorf("set nonblock: %w", err)
+	}
+
 	id := fmt.Sprintf("%s-%s-%d", proj.id[:8], req.Command, time.Now().UnixMilli())
 	mp := &managedProcess{
 		info: ProcessInfo{
@@ -151,36 +168,26 @@ func (s *Server) launchProcess(proj *project, req LaunchRequest) (*managedProces
 		},
 		cmd:    cmd,
 		cancel: cancel,
-		output: newRingBuffer(10000),
-		subs:   make(map[chan string]struct{}),
-	}
-
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		cancel()
-		return nil, err
-	}
-	cmd.Stderr = cmd.Stdout // merge stderr into stdout
-
-	if err := cmd.Start(); err != nil {
-		cancel()
-		return nil, fmt.Errorf("starting process: %w", err)
+		ptyF:   ptmx,
+		output: newRawBuffer(1024 * 1024), // 1MB
+		subs:   make(map[chan []byte]struct{}),
 	}
 	mp.info.PID = cmd.Process.Pid
 
-	// Read output in background
+	// Read PTY output in background
 	go func() {
 		buf := make([]byte, 4096)
 		for {
-			n, err := stdout.Read(buf)
+			n, err := ptmx.Read(buf)
 			if n > 0 {
-				line := string(buf[:n])
-				mp.output.Write(line)
+				chunk := make([]byte, n)
+				copy(chunk, buf[:n])
+				mp.output.Write(chunk)
 				mp.mu.Lock()
 				for ch := range mp.subs {
 					select {
-					case ch <- line:
-					default: // don't block
+					case ch <- chunk:
+					default: // don't block on slow consumers
 					}
 				}
 				mp.mu.Unlock()
@@ -194,11 +201,19 @@ func (s *Server) launchProcess(proj *project, req LaunchRequest) (*managedProces
 	// Wait for process to finish in background
 	go func() {
 		err := cmd.Wait()
+		ptmx.Close()
 		mp.mu.Lock()
 		if err != nil {
 			mp.info.Status = "failed"
 		} else {
 			mp.info.Status = "stopped"
+		}
+		// Notify subscribers that process exited
+		for ch := range mp.subs {
+			select {
+			case ch <- nil: // nil signals exit
+			default:
+			}
 		}
 		mp.mu.Unlock()
 	}()
