@@ -4,10 +4,12 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/spf13/cobra"
 
 	"github.com/lofari/golem/internal/graph"
+	"github.com/lofari/golem/internal/graph/embed"
 	"github.com/lofari/golem/internal/scaffold"
 )
 
@@ -36,7 +38,8 @@ var graphBuildCmd = &cobra.Command{
 		}
 		defer store.Close()
 
-		builder := graph.NewBuilder(store)
+		depth, _ := cmd.Flags().GetInt("depth")
+		builder := graph.NewBuilder(store, depth)
 
 		fmt.Fprintf(os.Stderr, "golem: building code graph...\n")
 		if err := builder.BuildFull(dir); err != nil {
@@ -49,6 +52,14 @@ var graphBuildCmd = &cobra.Command{
 		// Print type breakdown
 		for t, count := range stats.NodeTypes {
 			fmt.Fprintf(os.Stderr, "golem:   %s: %d\n", t, count)
+		}
+
+		// Print history stats
+		commitCount, _ := store.CommitCount()
+		authorCount, _ := store.AuthorCount()
+		coCount, _ := store.CoChangedCount()
+		if commitCount > 0 {
+			fmt.Fprintf(os.Stderr, "golem: history — %d commits, %d authors, %d co-change pairs\n", commitCount, authorCount, coCount)
 		}
 
 		return nil
@@ -100,6 +111,90 @@ var graphStatusCmd = &cobra.Command{
 			fmt.Printf("  %-12s %d\n", t, count)
 		}
 
+		// Documentation stats
+		docCount := stats.NodeTypes["document"]
+		secCount := stats.NodeTypes["section"]
+		if docCount > 0 || secCount > 0 {
+			fmt.Printf("\nDocumentation: %d documents, %d sections\n", docCount, secCount)
+		}
+
+		// Embedding stats
+		embedCount, err := store.EmbeddingCount()
+		if err == nil && embedCount > 0 {
+			embedModel, _ := store.GetMeta("embed_model")
+			embedTime, _ := store.GetMeta("embed_last_indexed")
+			fmt.Printf("\nEmbeddings: %d nodes embedded", embedCount)
+			if embedModel != "" {
+				fmt.Printf(" (model: %s)", embedModel)
+			}
+			fmt.Println()
+			if embedTime != "" {
+				fmt.Printf("Last embedded: %s\n", embedTime)
+			}
+		}
+
+		// History stats
+		commitCount, _ := store.CommitCount()
+		authorCount, _ := store.AuthorCount()
+		coCount, _ := store.CoChangedCount()
+		if commitCount > 0 {
+			fmt.Printf("\nHistory: %d commits, %d authors\n", commitCount, authorCount)
+			fmt.Printf("Co-change pairs: %d\n", coCount)
+			historyCommit, _ := store.GetMeta("history_last_sha")
+			if historyCommit != "" {
+				fmt.Printf("Last history commit: %s\n", historyCommit[:min(len(historyCommit), 12)])
+			}
+		}
+
+		return nil
+	},
+}
+
+var graphEmbedCmd = &cobra.Command{
+	Use:   "embed",
+	Short: "Generate embeddings for graph nodes",
+	Long:  "Generates vector embeddings for all code nodes in the knowledge graph using a local ONNX model.",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		dir, err := os.Getwd()
+		if err != nil {
+			return err
+		}
+
+		dbPath := filepath.Join(dir, ".ctx", "graph.db")
+		if _, err := os.Stat(dbPath); os.IsNotExist(err) {
+			return fmt.Errorf("no graph database found — run 'golem graph build' first")
+		}
+
+		store, err := graph.OpenStore(dbPath)
+		if err != nil {
+			return fmt.Errorf("open graph: %w", err)
+		}
+		defer store.Close()
+
+		// Ensure model is downloaded
+		modelDir, err := embed.EnsureModel(embed.DefaultModelID, embed.DefaultModelDir())
+		if err != nil {
+			return fmt.Errorf("ensure model: %w", err)
+		}
+
+		// Create embedder
+		embedder, err := embed.NewONNXEmbedder(modelDir)
+		if err != nil {
+			return fmt.Errorf("create embedder: %w", err)
+		}
+		defer embedder.Close()
+
+		p := embed.NewPipeline(store, embedder)
+
+		fmt.Fprintf(os.Stderr, "Embedding all graph nodes...\n")
+		count, err := p.EmbedAll(cmd.Context())
+		if err != nil {
+			return fmt.Errorf("embed: %w", err)
+		}
+		_ = store.SetMeta("embed_model", embed.DefaultModelID)
+		_ = store.SetMeta("embed_last_indexed", time.Now().Format(time.RFC3339))
+		fmt.Fprintf(os.Stderr, "Embedded %d nodes\n", count)
+
 		return nil
 	},
 }
@@ -108,4 +203,7 @@ func init() {
 	rootCmd.AddCommand(graphCmd)
 	graphCmd.AddCommand(graphBuildCmd)
 	graphCmd.AddCommand(graphStatusCmd)
+	graphCmd.AddCommand(graphEmbedCmd)
+
+	graphBuildCmd.Flags().IntP("depth", "d", 500, "number of git commits to index for history")
 }
