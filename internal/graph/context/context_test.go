@@ -130,3 +130,48 @@ func TestSemanticCandidates(t *testing.T) {
 		t.Errorf("expected ValidateCredentials first, got %s", candidates[0].Node.Name)
 	}
 }
+
+func TestStructuralExpansion(t *testing.T) {
+	store := setupTestStore(t)
+
+	// Insert nodes
+	nodes := []graph.Node{
+		{ID: "func:a.go:Foo", Type: "function", Name: "Foo", Path: "a.go", Line: 10},
+		{ID: "func:b.go:Bar", Type: "function", Name: "Bar", Path: "b.go", Line: 20},
+		{ID: "func:c.go:Baz", Type: "function", Name: "Baz", Path: "c.go", Line: 30},
+	}
+	edges := []graph.Edge{
+		{From: "func:a.go:Foo", To: "func:b.go:Bar", Type: "CALLS"},
+		{From: "func:b.go:Bar", To: "func:c.go:Baz", Type: "CALLS"},
+	}
+	store.InsertBatch(nodes, edges)
+
+	// Start with Foo as a semantic candidate
+	seeds := []candidate{
+		{Node: nodes[0], Score: 0.9},
+	}
+
+	expanded := structuralExpansion(store, seeds)
+
+	// Should include Bar (1-hop from Foo) with reduced score
+	found := false
+	for _, c := range expanded {
+		if c.Node.Name == "Bar" {
+			found = true
+			expected := 0.9 * structuralDecay
+			if c.Score < expected-0.01 || c.Score > expected+0.01 {
+				t.Errorf("Bar score = %f, want ~%f", c.Score, expected)
+			}
+		}
+	}
+	if !found {
+		t.Error("expected Bar in expanded candidates")
+	}
+
+	// Should NOT include Baz (2 hops away, we only do 1-hop)
+	for _, c := range expanded {
+		if c.Node.Name == "Baz" {
+			t.Error("did not expect Baz (2 hops away)")
+		}
+	}
+}

@@ -49,3 +49,48 @@ func semanticCandidates(store *graph.Store, embedder embed.Embedder, taskText st
 
 	return candidates, nil
 }
+
+const structuralDecay = 0.7
+
+// structuralExpansion adds 1-hop callers/callees of seed candidates.
+func structuralExpansion(store *graph.Store, seeds []candidate) []candidate {
+	seen := make(map[string]bool)
+	for _, s := range seeds {
+		seen[s.Node.ID] = true
+	}
+
+	var expanded []candidate
+	for _, seed := range seeds {
+		// Outgoing edges (callees, dependencies)
+		outEdges, _ := store.EdgesFrom(seed.Node.ID)
+		for _, e := range outEdges {
+			if seen[e.To] {
+				continue
+			}
+			seen[e.To] = true
+			if node, _ := store.NodeByID(e.To); node != nil {
+				expanded = append(expanded, candidate{
+					Node:  *node,
+					Score: seed.Score * structuralDecay,
+				})
+			}
+		}
+
+		// Incoming edges (callers, dependents)
+		inEdges, _ := store.EdgesTo(seed.Node.ID)
+		for _, e := range inEdges {
+			if seen[e.From] {
+				continue
+			}
+			seen[e.From] = true
+			if node, _ := store.NodeByID(e.From); node != nil {
+				expanded = append(expanded, candidate{
+					Node:  *node,
+					Score: seed.Score * structuralDecay,
+				})
+			}
+		}
+	}
+
+	return expanded
+}
