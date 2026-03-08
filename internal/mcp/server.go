@@ -24,7 +24,7 @@ func NewServer(dir string) *GolemServer {
 // ListTools returns the names of all registered tools.
 func (gs *GolemServer) ListTools() []string {
 	// Tool names are registered in registerTools
-	return []string{"mark_task", "set_phase", "set_status", "add_decision", "add_pitfall", "add_locked", "log_session", "find_callers", "find_dependencies", "find_dependents", "graph_query", "semantic_search", "find_recent_changes", "find_file_history", "find_co_changed", "find_execution_failures", "get_runtime_trace"}
+	return []string{"mark_task", "set_phase", "set_status", "add_decision", "add_pitfall", "add_locked", "log_session", "find_callers", "find_dependencies", "find_dependents", "graph_query", "semantic_search", "find_recent_changes", "find_file_history", "find_co_changed", "find_execution_failures", "get_runtime_trace", "find_test_results"}
 }
 
 // ServeStdio runs the MCP server over stdin/stdout.
@@ -50,4 +50,5 @@ func (gs *GolemServer) registerTools() {
 	gs.mcpServer.AddTool(findCoChangedTool(), gs.handleFindCoChanged)
 	gs.mcpServer.AddTool(findExecutionFailuresTool(), gs.handleFindExecutionFailures)
 	gs.mcpServer.AddTool(getRuntimeTraceTool(), gs.handleGetRuntimeTrace)
+	gs.mcpServer.AddTool(findTestResultsTool(), gs.handleFindTestResults)
 }

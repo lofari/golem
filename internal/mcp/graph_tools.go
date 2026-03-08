@@ -902,6 +902,100 @@ func (gs *GolemServer) handleGetRuntimeTrace(_ context.Context, req mcp.CallTool
 	return mcp.NewToolResultText(string(out)), nil
 }
 
+// --- find_test_results ---
+
+func findTestResultsTool() mcp.Tool {
+	return mcp.Tool{
+		Name:        "find_test_results",
+		Description: "Find test results from agent execution. Shows which tests passed/failed and what functions they exercise.",
+		InputSchema: mcp.ToolInputSchema{
+			Type: "object",
+			Properties: map[string]any{
+				"session": map[string]string{"type": "string", "description": "Session ID (default: latest session)"},
+				"status":  map[string]string{"type": "string", "description": "Filter by status: passed, failed, or all (default: all)"},
+				"name":    map[string]string{"type": "string", "description": "Filter by test name substring"},
+			},
+		},
+	}
+}
+
+func (gs *GolemServer) handleFindTestResults(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	args := req.GetArguments()
+	sessionID := getStr(args, "session")
+	status := getStr(args, "status")
+	nameFilter := getStr(args, "name")
+
+	store, err := gs.openGraph()
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("opening graph: %v", err)), nil
+	}
+	defer store.Close()
+
+	if sessionID == "" {
+		latest, err := store.LatestExecution()
+		if err != nil || latest == nil {
+			return mcp.NewToolResultText("no execution sessions found"), nil
+		}
+		sessionID = latest.SessionID
+	}
+
+	tests, err := store.QueryTestResults(sessionID, status)
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("querying test results: %v", err)), nil
+	}
+
+	type exercisedFn struct {
+		Function string `json:"function"`
+		Path     string `json:"path"`
+		Line     int    `json:"line,omitempty"`
+	}
+
+	type testEntry struct {
+		Name       string        `json:"name"`
+		Passed     bool          `json:"passed"`
+		DurationMs int           `json:"durationMs,omitempty"`
+		Output     string        `json:"output,omitempty"`
+		Exercises  []exercisedFn `json:"exercises,omitempty"`
+	}
+
+	var results []testEntry
+	for _, tr := range tests {
+		if nameFilter != "" && !strings.Contains(tr.Name, nameFilter) {
+			continue
+		}
+
+		entry := testEntry{
+			Name:       tr.Name,
+			Passed:     tr.Passed,
+			DurationMs: tr.DurationMs,
+			Output:     tr.Output,
+		}
+
+		// Find TESTS edges from this test result
+		edges, _ := store.EdgesFrom(tr.ID)
+		for _, e := range edges {
+			if e.Type == "TESTS" {
+				if n, _ := store.NodeByID(e.To); n != nil {
+					entry.Exercises = append(entry.Exercises, exercisedFn{
+						Function: n.Name,
+						Path:     n.Path,
+						Line:     n.Line,
+					})
+				}
+			}
+		}
+
+		results = append(results, entry)
+	}
+
+	if len(results) == 0 {
+		return mcp.NewToolResultText(fmt.Sprintf("no test results found in session %q", sessionID)), nil
+	}
+
+	out, _ := json.MarshalIndent(results, "", "  ")
+	return mcp.NewToolResultText(string(out)), nil
+}
+
 // getInt extracts an int from MCP arguments with a default.
 func getInt(args map[string]any, key string, defaultVal int) int {
 	v, ok := args[key]
