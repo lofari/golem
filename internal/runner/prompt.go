@@ -23,6 +23,7 @@ func RenderPrompt(dir string, templateFile string, vars PromptVars) (string, err
 	content = strings.ReplaceAll(content, "{{ITERATION_CONTEXT}}", vars.IterationContext)
 	content = strings.ReplaceAll(content, "{{TASK_OVERRIDE}}", vars.TaskOverride)
 	content = strings.ReplaceAll(content, "{{INJECTED_CONTEXT}}", vars.InjectedContext)
+	content = strings.ReplaceAll(content, "{{CONTEXT_MAP}}", vars.ContextMap)
 
 	// Append review context if there are pending review tasks
 	if vars.ReviewContext != "" {
@@ -38,6 +39,7 @@ type PromptVars struct {
 	TaskOverride     string
 	ReviewContext    string
 	InjectedContext  string
+	ContextMap       string
 }
 
 // BuildIterationContext generates the iteration context string.

@@ -60,6 +60,48 @@ func TestRenderPrompt_InjectedContext(t *testing.T) {
 	}
 }
 
+func TestRenderPrompt_ContextMap(t *testing.T) {
+	dir := t.TempDir()
+	ctxDir := filepath.Join(dir, ".ctx")
+	os.MkdirAll(ctxDir, 0755)
+
+	tmpl := "Before\n{{CONTEXT_MAP}}\nAfter"
+	os.WriteFile(filepath.Join(ctxDir, "prompt.md"), []byte(tmpl), 0644)
+
+	vars := PromptVars{
+		ContextMap: "## Relevant Context\n\n- `Foo` function (a.go:10)\n",
+	}
+
+	got, err := RenderPrompt(dir, "prompt.md", vars)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(got, "## Relevant Context") {
+		t.Error("context map not injected")
+	}
+	if !strings.Contains(got, "Before") || !strings.Contains(got, "After") {
+		t.Error("template content lost")
+	}
+}
+
+func TestRenderPrompt_EmptyContextMap(t *testing.T) {
+	dir := t.TempDir()
+	ctxDir := filepath.Join(dir, ".ctx")
+	os.MkdirAll(ctxDir, 0755)
+
+	tmpl := "Before\n{{CONTEXT_MAP}}\nAfter"
+	os.WriteFile(filepath.Join(ctxDir, "prompt.md"), []byte(tmpl), 0644)
+
+	vars := PromptVars{ContextMap: ""}
+	got, err := RenderPrompt(dir, "prompt.md", vars)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(got, "Relevant Context") {
+		t.Error("empty context map should not produce output")
+	}
+}
+
 func TestBuildIterationContext(t *testing.T) {
 	// Not low on iterations
 	ctx := BuildIterationContext(3, 20, 8)
