@@ -42,42 +42,56 @@ type managedProcess struct {
 	info   ProcessInfo
 	cmd    *exec.Cmd
 	cancel context.CancelFunc
-	output *ringBuffer
+	ptyF   *os.File // PTY file handle
+	output *rawBuffer
 	mu     sync.Mutex
-	subs   map[chan string]struct{} // output subscribers
+	subs   map[chan []byte]struct{}
 }
 
-// ringBuffer is a simple circular buffer for output lines.
-type ringBuffer struct {
-	mu    sync.Mutex
-	lines []string
-	max   int
+// rawBuffer is a circular byte buffer for PTY output.
+type rawBuffer struct {
+	mu   sync.Mutex
+	buf  []byte
+	size int
+	w    int  // write position
+	full bool // whether buffer has wrapped
 }
 
-func newRingBuffer(max int) *ringBuffer {
-	return &ringBuffer{lines: make([]string, 0, max), max: max}
+func newRawBuffer(size int) *rawBuffer {
+	return &rawBuffer{buf: make([]byte, size), size: size}
 }
 
-func (rb *ringBuffer) Write(line string) {
+func (rb *rawBuffer) Write(data []byte) {
 	rb.mu.Lock()
 	defer rb.mu.Unlock()
-	if len(rb.lines) >= rb.max {
-		rb.lines = rb.lines[1:]
+	for len(data) > 0 {
+		n := copy(rb.buf[rb.w:], data)
+		rb.w += n
+		data = data[n:]
+		if rb.w >= rb.size {
+			rb.w = 0
+			rb.full = true
+		}
 	}
-	rb.lines = append(rb.lines, line)
 }
 
-func (rb *ringBuffer) Lines() []string {
+func (rb *rawBuffer) Bytes() []byte {
 	rb.mu.Lock()
 	defer rb.mu.Unlock()
-	out := make([]string, len(rb.lines))
-	copy(out, rb.lines)
+	if !rb.full {
+		out := make([]byte, rb.w)
+		copy(out, rb.buf[:rb.w])
+		return out
+	}
+	out := make([]byte, rb.size)
+	n := copy(out, rb.buf[rb.w:])
+	copy(out[n:], rb.buf[:rb.w])
 	return out
 }
 
-// Subscribe returns a channel that receives output lines.
-func (mp *managedProcess) Subscribe() chan string {
-	ch := make(chan string, 256)
+// Subscribe returns a channel that receives output chunks.
+func (mp *managedProcess) Subscribe() chan []byte {
+	ch := make(chan []byte, 256)
 	mp.mu.Lock()
 	mp.subs[ch] = struct{}{}
 	mp.mu.Unlock()
@@ -85,7 +99,7 @@ func (mp *managedProcess) Subscribe() chan string {
 }
 
 // Unsubscribe removes a subscriber channel.
-func (mp *managedProcess) Unsubscribe(ch chan string) {
+func (mp *managedProcess) Unsubscribe(ch chan []byte) {
 	mp.mu.Lock()
 	delete(mp.subs, ch)
 	mp.mu.Unlock()
