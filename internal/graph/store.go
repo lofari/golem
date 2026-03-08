@@ -98,6 +98,48 @@ func (s *Store) init() error {
 			node_id TEXT PRIMARY KEY,
 			embedding float[384]
 		);
+
+		CREATE TABLE IF NOT EXISTS executions (
+			session_id TEXT PRIMARY KEY,
+			started_at INTEGER NOT NULL,
+			ended_at   INTEGER,
+			status     TEXT NOT NULL DEFAULT 'running'
+		);
+		CREATE TABLE IF NOT EXISTS commands (
+			id          TEXT PRIMARY KEY,
+			session_id  TEXT NOT NULL,
+			seq         INTEGER NOT NULL,
+			command     TEXT NOT NULL,
+			exit_code   INTEGER,
+			working_dir TEXT,
+			FOREIGN KEY (session_id) REFERENCES executions(session_id)
+		);
+		CREATE TABLE IF NOT EXISTS outputs (
+			command_id TEXT PRIMARY KEY,
+			stdout     TEXT,
+			stderr     TEXT,
+			truncated  BOOLEAN DEFAULT FALSE,
+			FOREIGN KEY (command_id) REFERENCES commands(id)
+		);
+		CREATE TABLE IF NOT EXISTS test_results (
+			id          TEXT PRIMARY KEY,
+			session_id  TEXT NOT NULL,
+			name        TEXT NOT NULL,
+			passed      BOOLEAN NOT NULL,
+			duration_ms INTEGER,
+			output      TEXT,
+			FOREIGN KEY (session_id) REFERENCES executions(session_id)
+		);
+		CREATE TABLE IF NOT EXISTS errors (
+			id          TEXT PRIMARY KEY,
+			command_id  TEXT NOT NULL,
+			message     TEXT NOT NULL,
+			stack_trace TEXT,
+			FOREIGN KEY (command_id) REFERENCES commands(id)
+		);
+		CREATE INDEX IF NOT EXISTS idx_commands_session ON commands(session_id);
+		CREATE INDEX IF NOT EXISTS idx_test_results_session ON test_results(session_id);
+		CREATE INDEX IF NOT EXISTS idx_errors_command ON errors(command_id);
 	`
 	_, err := s.db.Exec(schema)
 	return err
