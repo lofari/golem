@@ -60,6 +60,10 @@ class GolemWebSocket {
     });
   }
 
+  void send(Map<String, dynamic> message) {
+    _channel?.sink.add(jsonEncode(message));
+  }
+
   void dispose() {
     _disposed = true;
     _reconnectTimer?.cancel();
