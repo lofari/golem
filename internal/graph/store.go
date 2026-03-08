@@ -171,7 +171,7 @@ func (s *Store) DeleteByPath(path string) error {
 
 // Clear removes all nodes and edges.
 func (s *Store) Clear() error {
-	_, err := s.db.Exec("DELETE FROM nodes; DELETE FROM edges;")
+	_, err := s.db.Exec("DELETE FROM nodes; DELETE FROM edges; DELETE FROM commits; DELETE FROM authors;")
 	return err
 }
 
@@ -471,12 +471,24 @@ func (s *Store) AuthorCount() (int, error) {
 
 // DeleteHistory removes all commits, authors, and history-related edges.
 func (s *Store) DeleteHistory() error {
-	_, err := s.db.Exec(`
-		DELETE FROM commits;
-		DELETE FROM authors;
-		DELETE FROM edges WHERE type IN ('MODIFIES', 'AUTHORED_BY', 'CO_CHANGED');
-	`)
-	return err
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	_, err = tx.Exec(`DELETE FROM commits`)
+	if err != nil {
+		return err
+	}
+	_, err = tx.Exec(`DELETE FROM authors`)
+	if err != nil {
+		return err
+	}
+	_, err = tx.Exec(`DELETE FROM edges WHERE type IN ('MODIFIES', 'AUTHORED_BY', 'CO_CHANGED')`)
+	if err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 // CoChangedCount returns the number of CO_CHANGED edges.
@@ -531,7 +543,7 @@ func (s *Store) queryNodes(query string, args ...any) ([]Node, error) {
 		}
 		nodes = append(nodes, n)
 	}
-	return nodes, nil
+	return nodes, rows.Err()
 }
 
 func (s *Store) queryEdges(query string, args ...any) ([]Edge, error) {
@@ -549,5 +561,5 @@ func (s *Store) queryEdges(query string, args ...any) ([]Edge, error) {
 		}
 		edges = append(edges, e)
 	}
-	return edges, nil
+	return edges, rows.Err()
 }

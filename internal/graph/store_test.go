@@ -398,7 +398,7 @@ func TestDeleteHistory(t *testing.T) {
 
 	edges := []Edge{
 		{From: "commit:c1", To: "file:a.go", Type: "MODIFIES"},
-		{From: "author:a@b.com", To: "commit:c1", Type: "AUTHORED_BY"},
+		{From: "commit:c1", To: "author:a@b.com", Type: "AUTHORED_BY"},
 		{From: "file:a.go", To: "fn:a.go:Foo", Type: "DEFINES"}, // Should NOT be deleted
 	}
 	s.InsertBatch(nil, edges)
