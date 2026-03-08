@@ -77,3 +77,32 @@ func TestLoad_PluginDirMerge(t *testing.T) {
 		t.Errorf("expected project plugin-dir to override, got %v", cfg.PluginDir)
 	}
 }
+
+func TestDefaults_ContextMap(t *testing.T) {
+	cfg := Defaults()
+	if !cfg.ContextMap {
+		t.Error("expected ContextMap to default to true")
+	}
+	if cfg.ContextMapLimit != 15 {
+		t.Errorf("expected ContextMapLimit to default to 15, got %d", cfg.ContextMapLimit)
+	}
+}
+
+func TestGetValue_ContextMap(t *testing.T) {
+	cfg := Defaults()
+	v, err := GetValue(cfg, "context-map")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v != "true" {
+		t.Errorf("expected 'true', got %q", v)
+	}
+
+	v, err = GetValue(cfg, "context-map-limit")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v != "15" {
+		t.Errorf("expected '15', got %q", v)
+	}
+}
