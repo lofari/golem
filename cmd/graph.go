@@ -146,6 +146,17 @@ var graphStatusCmd = &cobra.Command{
 			}
 		}
 
+		// Execution stats
+		execCount, _ := store.ExecutionCount()
+		if execCount > 0 {
+			cmdCount, _ := store.CommandCount()
+			failCount, _ := store.FailedCommandCount()
+			fmt.Printf("\nExecution: %d sessions, %d commands (%d failed)\n", execCount, cmdCount, failCount)
+			if latest, _ := store.LatestExecution(); latest != nil {
+				fmt.Printf("Latest session: %s (status: %s)\n", latest.SessionID, latest.Status)
+			}
+		}
+
 		return nil
 	},
 }
