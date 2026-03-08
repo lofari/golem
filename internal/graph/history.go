@@ -1,6 +1,7 @@
 package graph
 
 import (
+	"bytes"
 	"fmt"
 	"os/exec"
 	"strconv"
@@ -93,7 +94,8 @@ func (h *HistoryBuilder) Sync(projectPath string) error {
 		lastSHA+"..HEAD",
 	)
 	if err != nil {
-		return fmt.Errorf("running git log for sync: %w", err)
+		// SHA may no longer exist (e.g. after rebase); fall back to full build
+		return h.Build(projectPath)
 	}
 
 	parsed := parseGitLog(output)
@@ -268,9 +270,11 @@ func gitLog(dir string, args ...string) (string, error) {
 	cmdArgs := append([]string{"log"}, args...)
 	cmd := exec.Command("git", cmdArgs...)
 	cmd.Dir = dir
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
 	out, err := cmd.Output()
 	if err != nil {
-		return "", fmt.Errorf("git log: %w", err)
+		return "", fmt.Errorf("git log: %w: %s", err, stderr.String())
 	}
 	return string(out), nil
 }
