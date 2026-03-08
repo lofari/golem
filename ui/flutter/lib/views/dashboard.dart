@@ -5,6 +5,7 @@ import '../models/project.dart';
 import '../providers/graph.dart';
 import '../providers/project.dart';
 import '../theme.dart';
+import 'diff_viewer.dart';
 
 class DashboardView extends ConsumerWidget {
   const DashboardView({super.key});
@@ -123,6 +124,10 @@ class DashboardView extends ConsumerWidget {
                   );
                 },
               ),
+
+              // Diff card (full width below the grid)
+              const SizedBox(height: 12),
+              const _DiffCard(),
 
               // Decisions & Pitfalls
               if (state.decisions.isNotEmpty) ...[
@@ -394,6 +399,62 @@ class _CompactSessionRow extends StatelessWidget {
             ),
           ],
         ],
+      ),
+    );
+  }
+}
+
+class _DiffCard extends ConsumerWidget {
+  const _DiffCard();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final diff = ref.watch(diffProvider);
+    final fileCount = diff?.files.length ?? 0;
+    final added = diff?.totalAdded ?? 0;
+    final removed = diff?.totalRemoved ?? 0;
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.difference_outlined,
+                    size: 14, color: GolemTheme.accent),
+                const SizedBox(width: 6),
+                const Text('Changes',
+                    style: TextStyle(
+                        fontSize: 13, fontWeight: FontWeight.w600)),
+                const Spacer(),
+                if (fileCount > 0) ...[
+                  Text(
+                    '$fileCount ${fileCount == 1 ? 'file' : 'files'}',
+                    style: const TextStyle(
+                        fontSize: 12, color: GolemTheme.textSecondary),
+                  ),
+                  if (added > 0 || removed > 0) ...[
+                    const SizedBox(width: 8),
+                    if (added > 0)
+                      Text('+$added',
+                          style: const TextStyle(
+                              fontSize: 12, color: GolemTheme.green)),
+                    if (added > 0 && removed > 0)
+                      const SizedBox(width: 4),
+                    if (removed > 0)
+                      Text('-$removed',
+                          style: const TextStyle(
+                              fontSize: 12, color: GolemTheme.red)),
+                  ],
+                ],
+              ],
+            ),
+            const SizedBox(height: 8),
+            const DiffViewer(),
+          ],
+        ),
       ),
     );
   }
