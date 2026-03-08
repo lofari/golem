@@ -11,6 +11,7 @@ import (
 
 	"github.com/lofari/golem/internal/graph"
 	"github.com/lofari/golem/internal/graph/embed"
+	"github.com/lofari/golem/internal/graph/query"
 )
 
 // openGraph opens the graph database for the project directory.
@@ -41,12 +42,6 @@ func (gs *GolemServer) handleFindCallers(_ context.Context, req mcp.CallToolRequ
 	args := req.GetArguments()
 	name := getStr(args, "name")
 	depth := getInt(args, "depth", 1)
-	if depth < 1 {
-		depth = 1
-	}
-	if depth > 5 {
-		depth = 5
-	}
 
 	store, err := gs.openGraph()
 	if err != nil {
@@ -54,60 +49,16 @@ func (gs *GolemServer) handleFindCallers(_ context.Context, req mcp.CallToolRequ
 	}
 	defer store.Close()
 
-	// Find target nodes by name
-	targets, err := store.FindNodesByName(name)
+	result, err := query.Related(store, name, "callers", depth)
 	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("querying graph: %v", err)), nil
-	}
-	if len(targets) == 0 {
-		return mcp.NewToolResultText(fmt.Sprintf("no nodes found matching %q", name)), nil
+		return mcp.NewToolResultError(fmt.Sprintf("querying: %v", err)), nil
 	}
 
-	// BFS to find callers
-	type caller struct {
-		Node  graph.Node `json:"node"`
-		Via   string     `json:"via"`
-		Depth int        `json:"depth"`
-	}
-
-	var callers []caller
-	visited := make(map[string]bool)
-
-	// Seed with target node IDs
-	current := make([]string, 0, len(targets))
-	for _, t := range targets {
-		current = append(current, t.ID)
-		visited[t.ID] = true
-	}
-
-	for d := 1; d <= depth; d++ {
-		var next []string
-		for _, nodeID := range current {
-			edges, _ := store.EdgesToOfType(nodeID, "CALLS")
-			for _, e := range edges {
-				if visited[e.From] {
-					continue
-				}
-				visited[e.From] = true
-				node, _ := store.NodeByID(e.From)
-				if node != nil {
-					callers = append(callers, caller{
-						Node:  *node,
-						Via:   fmt.Sprintf("CALLS:%s", nodeID),
-						Depth: d,
-					})
-					next = append(next, e.From)
-				}
-			}
-		}
-		current = next
-	}
-
-	if len(callers) == 0 {
+	if len(result.Nodes) <= 1 {
 		return mcp.NewToolResultText(fmt.Sprintf("no callers found for %q", name)), nil
 	}
 
-	out, _ := json.MarshalIndent(callers, "", "  ")
+	out, _ := json.MarshalIndent(result, "", "  ")
 	return mcp.NewToolResultText(string(out)), nil
 }
 
@@ -137,48 +88,13 @@ func (gs *GolemServer) handleFindDependencies(_ context.Context, req mcp.CallToo
 	}
 	defer store.Close()
 
-	// Try to find as file first, then by name
-	targets, _ := store.NodesByPath(name)
-	if len(targets) == 0 {
-		targets, _ = store.FindNodesByName(name)
-	}
-	if len(targets) == 0 {
-		return mcp.NewToolResultText(fmt.Sprintf("no nodes found matching %q", name)), nil
+	result, err := query.Related(store, name, "dependencies", 1)
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("querying: %v", err)), nil
 	}
 
-	type deps struct {
-		Imports []string `json:"imports,omitempty"`
-		Calls   []string `json:"calls,omitempty"`
-		Uses    []string `json:"uses,omitempty"`
-	}
-
-	result := deps{}
-	seen := make(map[string]bool)
-
-	for _, t := range targets {
-		edges, _ := store.EdgesFrom(t.ID)
-		for _, e := range edges {
-			key := e.Type + ":" + e.To
-			if seen[key] {
-				continue
-			}
-			seen[key] = true
-
-			// Resolve target node name
-			label := e.To
-			if n, _ := store.NodeByID(e.To); n != nil {
-				label = fmt.Sprintf("%s (%s:%d)", n.Name, n.Path, n.Line)
-			}
-
-			switch e.Type {
-			case "IMPORTS":
-				result.Imports = append(result.Imports, label)
-			case "CALLS":
-				result.Calls = append(result.Calls, label)
-			case "USES":
-				result.Uses = append(result.Uses, label)
-			}
-		}
+	if len(result.Nodes) <= 1 {
+		return mcp.NewToolResultText(fmt.Sprintf("no dependencies found for %q", name)), nil
 	}
 
 	out, _ := json.MarshalIndent(result, "", "  ")
@@ -211,64 +127,16 @@ func (gs *GolemServer) handleFindDependents(_ context.Context, req mcp.CallToolR
 	}
 	defer store.Close()
 
-	// Find target nodes
-	targets, _ := store.NodesByPath(name)
-	if len(targets) == 0 {
-		targets, _ = store.FindNodesByName(name)
-	}
-	if len(targets) == 0 {
-		return mcp.NewToolResultText(fmt.Sprintf("no nodes found matching %q", name)), nil
+	result, err := query.Related(store, name, "dependents", 1)
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("querying: %v", err)), nil
 	}
 
-	type dependent struct {
-		Name string `json:"name"`
-		Path string `json:"path"`
-		Line int    `json:"line,omitempty"`
-		Via  string `json:"via"`
-	}
-
-	var dependents []dependent
-	seen := make(map[string]bool)
-
-	for _, t := range targets {
-		// Also find all symbols defined in this file
-		searchIDs := []string{t.ID}
-		if t.Type == "file" {
-			defined, _ := store.EdgesOfType(t.ID, "DEFINES")
-			for _, e := range defined {
-				searchIDs = append(searchIDs, e.To)
-			}
-		}
-
-		for _, id := range searchIDs {
-			inEdges, _ := store.EdgesTo(id)
-			for _, e := range inEdges {
-				if e.Type == "DEFINES" {
-					continue // skip DEFINES edges (same file)
-				}
-				if seen[e.From] {
-					continue
-				}
-				seen[e.From] = true
-
-				node, _ := store.NodeByID(e.From)
-				if node != nil {
-					dependents = append(dependents, dependent{
-						Name: node.Name,
-						Path: node.Path,
-						Line: node.Line,
-						Via:  fmt.Sprintf("%s:%s", e.Type, id),
-					})
-				}
-			}
-		}
-	}
-
-	if len(dependents) == 0 {
+	if len(result.Nodes) <= 1 {
 		return mcp.NewToolResultText(fmt.Sprintf("no dependents found for %q", name)), nil
 	}
 
-	out, _ := json.MarshalIndent(dependents, "", "  ")
+	out, _ := json.MarshalIndent(result, "", "  ")
 	return mcp.NewToolResultText(string(out)), nil
 }
 
@@ -430,15 +298,13 @@ func semanticSearchTool() mcp.Tool {
 func (gs *GolemServer) handleSemanticSearch(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	args := req.GetArguments()
 
-	query, ok := args["query"].(string)
-	if !ok || query == "" {
+	q, ok := args["query"].(string)
+	if !ok || q == "" {
 		return mcp.NewToolResultError("query is required"), nil
 	}
 
 	limit := getInt(args, "limit", 10)
-	if limit > 50 {
-		limit = 50
-	}
+	types := getStrSlice(args, "types")
 
 	store, err := gs.openGraph()
 	if err != nil {
@@ -446,13 +312,6 @@ func (gs *GolemServer) handleSemanticSearch(_ context.Context, req mcp.CallToolR
 	}
 	defer store.Close()
 
-	// Check if embeddings exist
-	count, err := store.EmbeddingCount()
-	if err != nil || count == 0 {
-		return mcp.NewToolResultError("no embeddings found — run 'golem graph embed' first"), nil
-	}
-
-	// Open embedder for query embedding
 	modelDir, err := embed.EnsureModel(embed.DefaultModelID, embed.DefaultModelDir())
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("load model: %v", err)), nil
@@ -463,55 +322,12 @@ func (gs *GolemServer) handleSemanticSearch(_ context.Context, req mcp.CallToolR
 	}
 	defer embedder.Close()
 
-	// Embed query
-	vecs, err := embedder.Embed(context.Background(), []string{query})
+	results, err := query.Search(store, embedder, q, limit, types)
 	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("embed query: %v", err)), nil
+		return mcp.NewToolResultError(err.Error()), nil
 	}
 
-	// Search
-	results, err := store.SearchSimilar(vecs[0], limit)
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("search: %v", err)), nil
-	}
-
-	// Resolve nodes and apply type filter
-	typeFilter := map[string]bool{}
-	if types, ok := args["types"].([]any); ok {
-		for _, t := range types {
-			if s, ok := t.(string); ok {
-				typeFilter[s] = true
-			}
-		}
-	}
-
-	type searchResult struct {
-		Name  string  `json:"name"`
-		Path  string  `json:"path"`
-		Line  int     `json:"line,omitempty"`
-		Type  string  `json:"type"`
-		Score float32 `json:"score"`
-	}
-
-	var output []searchResult
-	for _, r := range results {
-		node, err := store.NodeByID(r.NodeID)
-		if err != nil || node == nil {
-			continue
-		}
-		if len(typeFilter) > 0 && !typeFilter[node.Type] {
-			continue
-		}
-		output = append(output, searchResult{
-			Name:  node.Name,
-			Path:  node.Path,
-			Line:  node.Line,
-			Type:  node.Type,
-			Score: 1.0 - r.Distance,
-		})
-	}
-
-	data, _ := json.Marshal(output)
+	data, _ := json.Marshal(results)
 	return mcp.NewToolResultText(string(data)), nil
 }
 
@@ -739,74 +555,38 @@ func (gs *GolemServer) handleFindExecutionFailures(_ context.Context, req mcp.Ca
 	}
 	defer store.Close()
 
-	if sessionID == "" {
-		latest, err := store.LatestExecution()
-		if err != nil || latest == nil {
-			return mcp.NewToolResultText("no execution sessions found"), nil
-		}
-		sessionID = latest.SessionID
-	}
-
-	failedCmds, err := store.QueryFailedCommands(sessionID)
+	result, err := query.RuntimePath(store, sessionID, "failures", "")
 	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("querying failures: %v", err)), nil
+		return mcp.NewToolResultText(err.Error()), nil
 	}
 
-	type failureResult struct {
-		Command       string   `json:"command"`
-		ExitCode      int      `json:"exitCode"`
-		ErrorMessage  string   `json:"errorMessage,omitempty"`
-		StackTrace    string   `json:"stackTrace,omitempty"`
-		FilesInvolved []string `json:"filesInvolved,omitempty"`
+	fr, ok := result.(*query.FailureResult)
+	if !ok || (len(fr.Failures) == 0 && len(fr.FailedTests) == 0) {
+		return mcp.NewToolResultText(fmt.Sprintf("no failures found in session %q", sessionID)), nil
 	}
 
-	var results []failureResult
-	for _, cmd := range failedCmds {
-		errors, _ := store.QueryErrorsBySession(sessionID)
-		var errMsg, stackTrace string
-		for _, e := range errors {
-			if e.CommandID == cmd.ID {
-				errMsg = e.Message
-				stackTrace = e.StackTrace
-				break
-			}
-		}
-
-		edges, _ := store.EdgesFrom(cmd.ID)
-		var files []string
-		for _, e := range edges {
-			if e.Type == "ACCESSES" {
-				files = append(files, strings.TrimPrefix(e.To, "file:"))
-			}
-		}
-
-		if fileFilter != "" {
+	// Apply file filter if specified
+	if fileFilter != "" {
+		var filtered []query.FailureEntry
+		for _, f := range fr.Failures {
 			matched := false
-			for _, f := range files {
-				if strings.Contains(f, fileFilter) {
+			for _, file := range f.FilesInvolved {
+				if strings.Contains(file, fileFilter) {
 					matched = true
 					break
 				}
 			}
-			if !matched {
-				continue
+			if matched {
+				filtered = append(filtered, f)
 			}
 		}
-
-		results = append(results, failureResult{
-			Command:       cmd.Command,
-			ExitCode:      cmd.ExitCode,
-			ErrorMessage:  errMsg,
-			StackTrace:    stackTrace,
-			FilesInvolved: files,
-		})
+		fr.Failures = filtered
+		if len(fr.Failures) == 0 && len(fr.FailedTests) == 0 {
+			return mcp.NewToolResultText(fmt.Sprintf("no failures found in session %q matching %q", sessionID, fileFilter)), nil
+		}
 	}
 
-	if len(results) == 0 {
-		return mcp.NewToolResultText(fmt.Sprintf("no failures found in session %q", sessionID)), nil
-	}
-
-	out, _ := json.MarshalIndent(results, "", "  ")
+	out, _ := json.MarshalIndent(fr, "", "  ")
 	return mcp.NewToolResultText(string(out)), nil
 }
 
@@ -837,65 +617,9 @@ func (gs *GolemServer) handleGetRuntimeTrace(_ context.Context, req mcp.CallTool
 	}
 	defer store.Close()
 
-	if sessionID == "" {
-		latest, err := store.LatestExecution()
-		if err != nil || latest == nil {
-			return mcp.NewToolResultText("no execution sessions found"), nil
-		}
-		sessionID = latest.SessionID
-	}
-
-	cmds, err := store.QueryCommandsBySession(sessionID)
+	result, err := query.RuntimePath(store, sessionID, "trace", cmdFilter)
 	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("querying commands: %v", err)), nil
-	}
-
-	exec, _ := store.LatestExecution()
-
-	type cmdEntry struct {
-		Command       string   `json:"command"`
-		ExitCode      int      `json:"exitCode"`
-		FilesAccessed []string `json:"filesAccessed,omitempty"`
-		OutputPreview string   `json:"outputPreview,omitempty"`
-	}
-
-	type traceResult struct {
-		SessionID string     `json:"sessionId"`
-		Status    string     `json:"status"`
-		Commands  []cmdEntry `json:"commands"`
-	}
-
-	result := traceResult{SessionID: sessionID}
-	if exec != nil {
-		result.Status = exec.Status
-	}
-
-	for _, cmd := range cmds {
-		if cmdFilter != "" && !strings.Contains(cmd.Command, cmdFilter) {
-			continue
-		}
-
-		entry := cmdEntry{
-			Command:  cmd.Command,
-			ExitCode: cmd.ExitCode,
-		}
-
-		edges, _ := store.EdgesFrom(cmd.ID)
-		for _, e := range edges {
-			if e.Type == "ACCESSES" {
-				entry.FilesAccessed = append(entry.FilesAccessed, strings.TrimPrefix(e.To, "file:"))
-			}
-		}
-
-		if out, _ := store.QueryOutput(cmd.ID); out != nil && out.Stdout != "" {
-			lines := strings.SplitN(out.Stdout, "\n", 6)
-			if len(lines) > 5 {
-				lines = lines[:5]
-			}
-			entry.OutputPreview = strings.Join(lines, "\n")
-		}
-
-		result.Commands = append(result.Commands, entry)
+		return mcp.NewToolResultText(err.Error()), nil
 	}
 
 	out, _ := json.MarshalIndent(result, "", "  ")
