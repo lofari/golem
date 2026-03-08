@@ -25,9 +25,16 @@ The `golem-superpowers:*` variants are designed for autonomous iterations and un
 2. If a task depends on another task that isn't `done`, skip it.
 3. For `[review]` tasks: read the task `notes` for what needs fixing, investigate the issue, and implement the fix.
    For regular tasks: find the matching `## Task` section in the implementation doc for detailed steps and code.
-4. Follow the implementation doc's steps for this task. Write tests. Make sure they pass.
-5. Commit your work with clear commit messages.
-6. After completing your ONE task, proceed to "End of Session". Do not start another task.
+4. **Use the golem knowledge graph tools** (via MCP) based on what your task requires:
+   - **Modifying existing code**: call `find_dependents` to see what breaks, `find_callers` to find all call sites.
+   - **Fixing a bug**: call `find_callers` and `find_dependencies` to trace through the affected code path.
+   - **Refactoring or renaming**: call `find_callers` and `find_co_changed` to find all sites and coupled files.
+   - **Creating new code**: call `semantic_search` to find similar patterns or interfaces to follow.
+   Skip graph tools only if you are doing something purely additive with no existing code dependencies (e.g., writing a standalone new file from a spec).
+   If graph tools return empty results, the graph may not be populated — proceed without them.
+5. Follow the implementation doc's steps for this task. Write tests. Make sure they pass.
+6. Commit your work with clear commit messages.
+7. After completing your ONE task, proceed to "End of Session". Do not start another task.
 
 ## End of Session
 Before exiting, use the golem MCP tools to update state:
