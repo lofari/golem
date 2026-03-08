@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/lofari/golem/internal/graph"
+	"github.com/lofari/golem/internal/graph/model"
 )
 
 func setupTestStore(t *testing.T) *graph.Store {
@@ -128,6 +129,73 @@ func TestSemanticCandidates(t *testing.T) {
 	// First candidate should be the most semantically similar
 	if candidates[0].Node.Name != "ValidateCredentials" {
 		t.Errorf("expected ValidateCredentials first, got %s", candidates[0].Node.Name)
+	}
+}
+
+func TestCoChangeBoost(t *testing.T) {
+	store := setupTestStore(t)
+
+	nodes := []graph.Node{
+		{ID: "file:a.go", Type: "file", Name: "a.go", Path: "a.go", Line: 0},
+		{ID: "file:b.go", Type: "file", Name: "b.go", Path: "b.go", Line: 0},
+	}
+	store.InsertBatch(nodes, nil)
+	store.InsertEdgeWithWeight("file:a.go", "file:b.go", "CO_CHANGED", 5)
+
+	candidates := []candidate{
+		{Node: graph.Node{ID: "func:a.go:Foo", Type: "function", Name: "Foo", Path: "a.go", Line: 10}, Score: 0.5},
+		{Node: graph.Node{ID: "func:b.go:Bar", Type: "function", Name: "Bar", Path: "b.go", Line: 20}, Score: 0.5},
+	}
+
+	boosted := coChangeBoost(store, candidates)
+
+	// Both should be boosted because their files co-change
+	for _, c := range boosted {
+		if c.Score <= 0.5 {
+			t.Errorf("%s score should be boosted above 0.5, got %f", c.Node.Name, c.Score)
+		}
+	}
+}
+
+func TestRecencyBoost(t *testing.T) {
+	store := setupTestStore(t)
+
+	// Insert a file node and a recent commit that modifies it
+	nodes := []graph.Node{
+		{ID: "file:a.go", Type: "file", Name: "a.go", Path: "a.go", Line: 0},
+	}
+	store.InsertBatch(nodes, nil)
+	store.InsertCommitBatch([]graph.Commit{
+		{SHA: "abc123", Message: "fix a.go", AuthorEmail: "dev@test.com", Timestamp: 9999999999, Additions: 10, Deletions: 5},
+	})
+	store.InsertBatch(nil, []graph.Edge{
+		{From: "commit:abc123", To: "file:a.go", Type: "MODIFIES"},
+	})
+
+	candidates := []candidate{
+		{Node: graph.Node{ID: "func:a.go:Foo", Type: "function", Name: "Foo", Path: "a.go", Line: 10}, Score: 0.5},
+	}
+
+	boosted := recencyBoost(store, candidates, 10)
+	if boosted[0].Score <= 0.5 {
+		t.Errorf("expected recency boost, got %f", boosted[0].Score)
+	}
+}
+
+func TestFailureBoost(t *testing.T) {
+	store := setupTestStore(t)
+
+	// Insert a failed test result linked to a session
+	store.InsertExecution(model.Execution{SessionID: "session-1", StartedAt: 1000, Status: "failed"})
+	store.InsertTestResult(model.TestResult{ID: "test:session-1:TestFoo", SessionID: "session-1", Name: "TestFoo", Passed: false, DurationMs: 100, Output: "assertion failed"})
+
+	candidates := []candidate{
+		{Node: graph.Node{ID: "func:a.go:Foo", Type: "function", Name: "Foo", Path: "a.go", Line: 10}, Score: 0.5},
+	}
+
+	boosted := failureBoost(store, candidates)
+	if boosted[0].Score <= 0.5 {
+		t.Errorf("expected failure boost, got %f", boosted[0].Score)
 	}
 }
 

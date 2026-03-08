@@ -3,6 +3,7 @@ package context
 import (
 	gocontext "context"
 	"fmt"
+	"strings"
 
 	"github.com/lofari/golem/internal/graph"
 	"github.com/lofari/golem/internal/graph/embed"
@@ -93,4 +94,88 @@ func structuralExpansion(store *graph.Store, seeds []candidate) []candidate {
 	}
 
 	return expanded
+}
+
+const (
+	coChangeBoostPerLink = 0.1
+	recencyBoostMax      = 0.15
+	failureBoostValue    = 0.2
+)
+
+// coChangeBoost boosts candidates whose files co-change with other candidates' files.
+func coChangeBoost(store *graph.Store, candidates []candidate) []candidate {
+	// Collect all file paths in candidate set
+	filePaths := make(map[string]bool)
+	for _, c := range candidates {
+		if c.Node.Path != "" {
+			filePaths[c.Node.Path] = true
+		}
+	}
+
+	for i, c := range candidates {
+		if c.Node.Path == "" {
+			continue
+		}
+		coChanged, err := store.QueryCoChanged(c.Node.Path, 1)
+		if err != nil {
+			continue
+		}
+		for _, cc := range coChanged {
+			if filePaths[cc.File] {
+				candidates[i].Score += coChangeBoostPerLink
+			}
+		}
+	}
+
+	return candidates
+}
+
+// recencyBoost boosts candidates whose files were modified in recent commits.
+func recencyBoost(store *graph.Store, candidates []candidate, recentN int) []candidate {
+	for i, c := range candidates {
+		if c.Node.Path == "" {
+			continue
+		}
+		commits, err := store.QueryCommitsByFile(c.Node.Path, recentN)
+		if err != nil || len(commits) == 0 {
+			continue
+		}
+		// Boost decays by position: most recent commit = full boost
+		boost := recencyBoostMax * (1.0 - float64(0)/float64(recentN))
+		candidates[i].Score += boost
+	}
+
+	return candidates
+}
+
+// failureBoost boosts candidates that match recent test failures.
+func failureBoost(store *graph.Store, candidates []candidate) []candidate {
+	// Get latest execution session
+	latest, err := store.LatestExecution()
+	if err != nil || latest == nil {
+		return candidates
+	}
+
+	// Get failed tests from latest session
+	failedTests, err := store.QueryTestResults(latest.SessionID, "failed")
+	if err != nil {
+		return candidates
+	}
+
+	failedNames := make(map[string]bool)
+	for _, t := range failedTests {
+		failedNames[strings.ToLower(t.Name)] = true
+	}
+
+	for i, c := range candidates {
+		candidateLower := strings.ToLower(c.Node.Name)
+		for name := range failedNames {
+			if strings.Contains(name, candidateLower) || strings.Contains(candidateLower, name) {
+				candidates[i].Score += failureBoostValue
+				break
+			}
+		}
+	}
+
+	return candidates
 }
