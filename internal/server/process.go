@@ -29,6 +29,7 @@ type LaunchConfig struct {
 	Sandbox       bool   `json:"sandbox,omitempty"`
 	MCP           bool   `json:"mcp,omitempty"`
 	Parallel      int    `json:"parallel,omitempty"`
+	PluginDir     string `json:"pluginDir,omitempty"`
 }
 
 // ProcessInfo is the API representation of a managed process.
@@ -138,6 +139,9 @@ func (s *Server) launchProcess(proj *project, req LaunchRequest) (*managedProces
 	}
 	if req.Config.Parallel > 1 {
 		args = append(args, "--parallel", fmt.Sprintf("%d", req.Config.Parallel))
+	}
+	if req.Config.PluginDir != "" {
+		args = append(args, "--plugin-dir", req.Config.PluginDir)
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
