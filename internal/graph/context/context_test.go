@@ -103,6 +103,60 @@ func TestContextMap_Format(t *testing.T) {
 	}
 }
 
+func TestBuildContextMap_FullPipeline(t *testing.T) {
+	store := setupTestStore(t)
+	embedder := &fakeEmbedder{}
+
+	// Set up a realistic graph: functions, calls, file nodes, co-changes, commits
+	nodes := []graph.Node{
+		{ID: "file:auth/login.go", Type: "file", Name: "login.go", Path: "auth/login.go", Line: 0},
+		{ID: "func:auth/login.go:ValidateCredentials", Type: "function", Name: "ValidateCredentials", Path: "auth/login.go", Line: 45},
+		{ID: "func:auth/crypto.go:CheckPassword", Type: "function", Name: "CheckPassword", Path: "auth/crypto.go", Line: 30},
+		{ID: "file:auth/crypto.go", Type: "file", Name: "crypto.go", Path: "auth/crypto.go", Line: 0},
+		{ID: "func:util/logger.go:LogInfo", Type: "function", Name: "LogInfo", Path: "util/logger.go", Line: 10},
+	}
+	edges := []graph.Edge{
+		{From: "func:auth/login.go:ValidateCredentials", To: "func:auth/crypto.go:CheckPassword", Type: "CALLS"},
+	}
+	store.InsertBatch(nodes, edges)
+
+	// Add embeddings
+	for _, n := range nodes {
+		store.InsertEmbedding(n.ID, embedder.vectorFor(n.Name+" "+n.Path))
+	}
+
+	// Add co-change
+	store.InsertEdgeWithWeight("file:auth/login.go", "file:auth/crypto.go", "CO_CHANGED", 5)
+
+	// Add recent commit
+	store.InsertCommitBatch([]graph.Commit{
+		{SHA: "abc123", Message: "fix login", AuthorEmail: "dev@test.com", Timestamp: 9999999999, Additions: 10, Deletions: 5},
+	})
+	store.InsertBatch(nil, []graph.Edge{
+		{From: "commit:abc123", To: "file:auth/login.go", Type: "MODIFIES"},
+	})
+
+	cm, err := BuildContextMap(store, embedder, "fix login validation", 15)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(cm.Symbols) == 0 {
+		t.Fatal("expected symbols in context map")
+	}
+
+	// Verify format produces valid output
+	formatted := cm.Format()
+	if formatted == "" {
+		t.Error("expected non-empty formatted output")
+	}
+	if !strings.Contains(formatted, "## Relevant Context") {
+		t.Error("missing header in formatted output")
+	}
+
+	t.Logf("Context map for 'fix login validation':\n%s", formatted)
+}
+
 func TestSemanticCandidates(t *testing.T) {
 	store := setupTestStore(t)
 	embedder := &fakeEmbedder{}
