@@ -12,6 +12,27 @@ class GolemTheme {
   static const green = Color(0xFF3fb950);
   static const yellow = Color(0xFFd29922);
   static const red = Color(0xFFf85149);
+  static const purple = Color(0xFFbc8cff);
+
+  /// Phase badge color mapping.
+  static Color phaseColor(String phase) {
+    return switch (phase) {
+      'planning' => accent,
+      'building' => green,
+      'fixing' => yellow,
+      'polishing' => purple,
+      _ => textSecondary,
+    };
+  }
+
+  /// Small monospace style for metadata.
+  static TextStyle metaStyle({double fontSize = 11}) {
+    return GoogleFonts.jetBrainsMono(
+      fontSize: fontSize,
+      color: textSecondary,
+      height: 1.4,
+    );
+  }
 
   static ThemeData dark() {
     return ThemeData(
