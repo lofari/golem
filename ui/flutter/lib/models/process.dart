@@ -42,6 +42,7 @@ class LaunchConfig {
   final bool sandbox;
   final bool mcp;
   final int? parallel;
+  final String? pluginDir;
 
   LaunchConfig({
     this.maxIterations,
@@ -51,6 +52,7 @@ class LaunchConfig {
     this.sandbox = false,
     this.mcp = true,
     this.parallel,
+    this.pluginDir,
   });
 
   Map<String, dynamic> toJson() {
@@ -62,6 +64,7 @@ class LaunchConfig {
     if (sandbox) map['sandbox'] = true;
     if (mcp) map['mcp'] = true;
     if (parallel != null && parallel! > 1) map['parallel'] = parallel;
+    if (pluginDir != null && pluginDir!.isNotEmpty) map['pluginDir'] = pluginDir;
     return map;
   }
 }
@@ -74,6 +77,7 @@ class GolemConfig {
   bool mcp;
   int parallel;
   String model;
+  String pluginDir;
 
   GolemConfig({
     this.maxIterations = 20,
@@ -83,7 +87,14 @@ class GolemConfig {
     this.mcp = true,
     this.parallel = 1,
     this.model = '',
+    this.pluginDir = '',
   });
+
+  static String _firstPluginDir(dynamic v) {
+    if (v is List && v.isNotEmpty) return v.first.toString();
+    if (v is String) return v;
+    return '';
+  }
 
   factory GolemConfig.fromJson(Map<String, dynamic> json) => GolemConfig(
         maxIterations: json['max-iterations'] as int? ?? 20,
@@ -93,6 +104,7 @@ class GolemConfig {
         mcp: json['mcp'] as bool? ?? true,
         parallel: json['parallel'] as int? ?? 1,
         model: json['model'] as String? ?? '',
+        pluginDir: _firstPluginDir(json['plugin-dir']),
       );
 
   Map<String, dynamic> toJson() => {
@@ -103,5 +115,6 @@ class GolemConfig {
         'mcp': mcp,
         'parallel': parallel,
         'model': model,
+        if (pluginDir.isNotEmpty) 'plugin-dir': [pluginDir],
       };
 }
