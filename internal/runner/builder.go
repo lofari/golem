@@ -11,6 +11,8 @@ import (
 
 	golemctx "github.com/lofari/golem/internal/ctx"
 	"github.com/lofari/golem/internal/graph"
+	"github.com/lofari/golem/internal/graph/embed"
+	"github.com/lofari/golem/internal/graph/execution"
 )
 
 type BuilderConfig struct {
@@ -71,12 +73,57 @@ func RunBuilderLoop(ctx context.Context, cfg BuilderConfig) (BuilderResult, erro
 	if _, statErr := os.Stat(graphPath); statErr == nil {
 		if gStore, gErr := graph.OpenStore(graphPath); gErr == nil {
 			gBuilder := graph.NewBuilder(gStore)
-			if syncErr := gBuilder.Sync(cfg.Dir); syncErr != nil {
+			syncErr := gBuilder.Sync(cfg.Dir)
+			if syncErr != nil {
 				fmt.Fprintf(os.Stderr, "golem: warning: graph sync failed: %v\n", syncErr)
 			} else {
 				fmt.Fprintf(os.Stderr, "golem: graph synced\n")
 			}
+			// Incremental embed if embeddings exist and sync succeeded
+			if syncErr == nil {
+				if eCount, _ := gStore.EmbeddingCount(); eCount > 0 {
+					modelDir, mErr := embed.EnsureModel(embed.DefaultModelID, embed.DefaultModelDir())
+					if mErr == nil {
+						if embedder, oErr := embed.NewONNXEmbedder(modelDir); oErr == nil {
+							p := embed.NewPipeline(gStore, embedder)
+							if _, eErr := p.EmbedAll(context.Background()); eErr != nil {
+								fmt.Fprintf(os.Stderr, "golem: warning: embed sync failed: %v\n", eErr)
+							} else {
+								fmt.Fprintf(os.Stderr, "golem: embeddings synced\n")
+							}
+							embedder.Close()
+						}
+					}
+				}
+			}
 			gStore.Close()
+		}
+	}
+
+	// Set up execution collector if graph exists and runner supports stream callbacks
+	if _, statErr := os.Stat(graphPath); statErr == nil {
+		if claudeRunner, ok := cfg.Runner.(*ClaudeRunner); ok && claudeRunner.StreamJSON {
+			if gStore, gErr := graph.OpenStore(graphPath); gErr == nil {
+				sessionID := fmt.Sprintf("build-%d", time.Now().Unix())
+				collector := execution.NewCollector(gStore, sessionID)
+
+				execution.PruneSessions(gStore, 5)
+
+				collector.Start()
+				defer func() {
+					status := "completed"
+					if result.Halted {
+						status = "failed"
+					}
+					collector.Finish(status)
+					gStore.Close()
+				}()
+
+				claudeRunner.SetupStreamCallbacks = func(parser *StreamParser) {
+					parser.OnBashCommand = collector.OnBashCommand
+					parser.OnBashResult = collector.OnBashResult
+				}
+			}
 		}
 	}
 

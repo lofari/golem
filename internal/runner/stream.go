@@ -14,9 +14,12 @@ import (
 // StreamParser reads stream-json lines from Claude CLI, extracts displayable
 // text for the TUI, and accumulates the full response for completion detection.
 type StreamParser struct {
-	display  io.Writer       // receives human-readable lines for TUI
-	text     strings.Builder // accumulates full assistant text
-	debugLog *os.File        // optional: raw stream dump for debugging
+	display       io.Writer       // receives human-readable lines for TUI
+	text          strings.Builder // accumulates full assistant text
+	debugLog      *os.File        // optional: raw stream dump for debugging
+	OnBashCommand func(command, workingDir string)        // called when a Bash tool is invoked
+	OnBashResult  func(exitCode int, stdout, stderr string) // called when Bash result arrives
+	lastBashCmd   string // track last bash command for result matching
 }
 
 func NewStreamParser(display io.Writer) *StreamParser {
@@ -89,8 +92,11 @@ func (sp *StreamParser) Parse(r io.Reader) {
 		case "result":
 			sp.handleResultMsg(raw)
 
+		case "tool_result":
+			sp.handleToolResult(raw)
+
 		case "system", "ping", "message_start", "message_delta", "message_stop",
-			"content_block_stop", "user", "tool_result", "rate_limit_event":
+			"content_block_stop", "user", "rate_limit_event":
 			// Skip silently
 
 		default:
@@ -127,6 +133,11 @@ func (sp *StreamParser) handleAssistantMsg(raw map[string]json.RawMessage) {
 			}
 		case "tool_use":
 			fmt.Fprintln(sp.display, formatToolCall(block.Name, block.Input))
+			if block.Name == "Bash" && sp.OnBashCommand != nil {
+				cmd := strVal(block.Input, "command")
+				sp.lastBashCmd = cmd
+				sp.OnBashCommand(cmd, "")
+			}
 		}
 	}
 }
@@ -230,8 +241,50 @@ func (sp *StreamParser) handleToolUse(raw map[string]json.RawMessage) {
 		}
 		if err := json.Unmarshal(toolRaw, &tool); err == nil && tool.Name != "" {
 			fmt.Fprintln(sp.display, formatToolCall(tool.Name, tool.Input))
+			if tool.Name == "Bash" && sp.OnBashCommand != nil {
+				cmd := strVal(tool.Input, "command")
+				sp.lastBashCmd = cmd
+				sp.OnBashCommand(cmd, "")
+			}
 		}
 	}
+}
+
+// handleToolResult processes tool_result events to extract Bash results.
+func (sp *StreamParser) handleToolResult(raw map[string]json.RawMessage) {
+	if sp.OnBashResult == nil || sp.lastBashCmd == "" {
+		return
+	}
+
+	toolRaw, ok := raw["tool"]
+	if !ok {
+		sp.parseToolResultFields(raw)
+		return
+	}
+
+	var tool struct {
+		Name string `json:"name"`
+	}
+	if err := json.Unmarshal(toolRaw, &tool); err != nil || tool.Name != "Bash" {
+		return
+	}
+
+	sp.parseToolResultFields(raw)
+}
+
+func (sp *StreamParser) parseToolResultFields(raw map[string]json.RawMessage) {
+	var content string
+	if c, ok := raw["content"]; ok {
+		json.Unmarshal(c, &content)
+	}
+
+	exitCode := 0
+	if ec, ok := raw["exit_code"]; ok {
+		json.Unmarshal(ec, &exitCode)
+	}
+
+	sp.OnBashResult(exitCode, content, "")
+	sp.lastBashCmd = ""
 }
 
 // CLI format: {"type":"result","result":"response text"}

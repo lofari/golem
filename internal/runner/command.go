@@ -19,16 +19,17 @@ type CommandRunner interface {
 
 // ClaudeRunner is the production implementation that spawns `claude -p`.
 type ClaudeRunner struct {
-	Verbose        bool
-	StreamJSON     bool      // use --output-format stream-json and parse output for TUI
-	Sandbox        bool      // run Claude inside a warden sandbox container
-	SandboxTools   []string  // additional warden tools beyond "claude" (e.g., "go", "node")
-	SandboxTimeout string    // warden --timeout value (e.g., "2h", "30m")
-	SandboxMemory  string    // warden --memory value (e.g., "8g")
-	PluginDirs     []string  // local plugin directories passed via --plugin-dir
-	MCPConfig      string    // path to mcp_servers.json (if set, passes --mcp-config)
-	OutputWriter   io.Writer // display destination; defaults to os.Stdout
-	ErrWriter      io.Writer // stderr destination; defaults to os.Stderr
+	Verbose              bool
+	StreamJSON           bool      // use --output-format stream-json and parse output for TUI
+	Sandbox              bool      // run Claude inside a warden sandbox container
+	SandboxTools         []string  // additional warden tools beyond "claude" (e.g., "go", "node")
+	SandboxTimeout       string    // warden --timeout value (e.g., "2h", "30m")
+	SandboxMemory        string    // warden --memory value (e.g., "8g")
+	PluginDirs           []string  // local plugin directories passed via --plugin-dir
+	MCPConfig            string    // path to mcp_servers.json (if set, passes --mcp-config)
+	OutputWriter         io.Writer // display destination; defaults to os.Stdout
+	ErrWriter            io.Writer // stderr destination; defaults to os.Stderr
+	SetupStreamCallbacks func(parser *StreamParser) // optional: hook execution collector into parser
 }
 
 func (c *ClaudeRunner) Run(ctx context.Context, dir string, prompt string, maxTurns int, model string) (string, error) {
@@ -170,6 +171,10 @@ func (c *ClaudeRunner) runStreamJSON(ctx context.Context, cmd *exec.Cmd, display
 	parser := NewStreamParser(display)
 	parser.EnableDebugLog(dir)
 	defer parser.Close()
+
+	if c.SetupStreamCallbacks != nil {
+		c.SetupStreamCallbacks(parser)
+	}
 
 	if err := cmd.Start(); err != nil {
 		return "", fmt.Errorf("starting claude: %w", err)
