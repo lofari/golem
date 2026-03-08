@@ -42,6 +42,8 @@ var codeCmd = &cobra.Command{
 			MCPEnabled:    rc.MCP,
 			Parallel:         rc.Parallel,
 			ExecutionHistory: rc.ExecutionHistory,
+			ContextMap:       rc.ContextMap,
+			ContextMapLimit:  rc.ContextMapLimit,
 			Runner:           claudeRunner,
 		})
 		if err != nil {

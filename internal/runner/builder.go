@@ -11,6 +11,7 @@ import (
 
 	golemctx "github.com/lofari/golem/internal/ctx"
 	"github.com/lofari/golem/internal/graph"
+	graphctx "github.com/lofari/golem/internal/graph/context"
 	"github.com/lofari/golem/internal/graph/embed"
 	"github.com/lofari/golem/internal/graph/execution"
 )
@@ -27,6 +28,8 @@ type BuilderConfig struct {
 	Parallel       int // max parallel sessions (1 = sequential)
 	PromptTemplate   string // prompt template filename (default: "prompt.md")
 	ExecutionHistory int    // number of execution sessions to retain (default 5)
+	ContextMap       bool   // enable context map injection
+	ContextMapLimit  int    // max symbols (default 15)
 	Runner           CommandRunner
 	Events           chan<- Event
 }
@@ -177,12 +180,19 @@ Loop:
 		if templateFile == "" {
 			templateFile = "prompt.md"
 		}
+		// Build context map if enabled and graph exists
+		var contextMapStr string
+		if cfg.ContextMap {
+			contextMapStr = buildContextMapString(cfg, state)
+		}
+
 		prompt, err := RenderPrompt(cfg.Dir, templateFile, PromptVars{
 			DocsPath:         state.Project.DocsPath,
 			IterationContext: iterCtx,
 			TaskOverride:     taskOverride,
 			ReviewContext:    reviewCtx,
 			InjectedContext:  injectedContext,
+			ContextMap:       contextMapStr,
 		})
 		injectedContext = "" // consumed
 		if err != nil {
@@ -391,6 +401,62 @@ func lastLogSession(l golemctx.Log) *golemctx.Session {
 	}
 	s := l.Sessions[len(l.Sessions)-1]
 	return &s
+}
+
+// buildContextMapString generates the context map string for prompt injection.
+func buildContextMapString(cfg BuilderConfig, state golemctx.State) string {
+	graphPath := filepath.Join(cfg.Dir, ".ctx", "graph.db")
+	if _, statErr := os.Stat(graphPath); statErr != nil {
+		return ""
+	}
+	gStore, gErr := graph.OpenStore(graphPath)
+	if gErr != nil {
+		return ""
+	}
+	defer gStore.Close()
+
+	eCount, _ := gStore.EmbeddingCount()
+	if eCount == 0 {
+		return ""
+	}
+
+	modelDir, mErr := embed.EnsureModel(embed.DefaultModelID, embed.DefaultModelDir())
+	if mErr != nil {
+		return ""
+	}
+	embedder, oErr := embed.NewONNXEmbedder(modelDir)
+	if oErr != nil {
+		return ""
+	}
+	defer embedder.Close()
+
+	// Determine task text
+	taskText := cfg.TaskOverride
+	if taskText == "" {
+		for _, task := range state.Tasks {
+			if task.Status == "in-progress" || task.Status == "todo" {
+				taskText = task.Name
+				if task.Notes != "" {
+					taskText += " " + task.Notes
+				}
+				break
+			}
+		}
+	}
+	if taskText == "" {
+		return ""
+	}
+
+	limit := cfg.ContextMapLimit
+	if limit < 1 {
+		limit = 15
+	}
+	cm, cmErr := graphctx.BuildContextMap(gStore, embedder, taskText, limit)
+	if cmErr != nil {
+		fmt.Fprintf(os.Stderr, "golem: warning: context map failed: %v\n", cmErr)
+		return ""
+	}
+	return cm.Format()
 }
 
 func formatDuration(d time.Duration) string {

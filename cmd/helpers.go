@@ -28,6 +28,7 @@ func addAgentFlags(cmd *cobra.Command) {
 	cmd.Flags().String("sandbox-timeout", "", "sandbox execution timeout (e.g., 2h, 30m)")
 	cmd.Flags().String("sandbox-memory", "", "sandbox memory limit (e.g., 8g)")
 	cmd.Flags().Bool("mcp", true, "enable golem MCP server for structured state updates")
+	cmd.Flags().Bool("no-context-map", false, "disable context map injection")
 }
 
 // resolveConfig loads config files and applies flag overrides.
@@ -71,6 +72,12 @@ func resolveConfig(cmd *cobra.Command, dir string) resolvedConfig {
 	}
 	if cmd.Flags().Changed("parallel") {
 		cfg.Parallel, _ = cmd.Flags().GetInt("parallel")
+	}
+	if cmd.Flags().Changed("no-context-map") {
+		noCtx, _ := cmd.Flags().GetBool("no-context-map")
+		if noCtx {
+			cfg.ContextMap = false
+		}
 	}
 
 	rc := resolvedConfig{Config: cfg}
