@@ -102,6 +102,34 @@ final graphRelatedProvider = FutureProvider.family<GraphRelatedResult, String>(
   return GraphRelatedResult.fromJson(json);
 });
 
+// Context map — fetched on demand for current task
+final contextMapProvider =
+    StateNotifierProvider<ContextMapNotifier, ContextMapResult?>((ref) {
+  final projectInfo = ref.watch(projectInfoProvider);
+  final projectState = ref.watch(projectStateProvider);
+  final api = ref.read(apiClientProvider);
+  final task = projectState?.status.currentFocus ?? '';
+  return ContextMapNotifier(api, projectInfo?.id, task);
+});
+
+class ContextMapNotifier extends StateNotifier<ContextMapResult?> {
+  final GolemApiClient _api;
+  final String? _projectId;
+
+  ContextMapNotifier(this._api, this._projectId, String task) : super(null) {
+    if (_projectId != null && task.isNotEmpty) _fetch(task);
+  }
+
+  Future<void> _fetch(String task) async {
+    try {
+      final json = await _api.getContextMap(_projectId!, task);
+      state = ContextMapResult.fromJson(json);
+    } catch (_) {}
+  }
+
+  void refresh(String task) => _fetch(task);
+}
+
 // Project list for switcher
 final projectListProvider =
     StateNotifierProvider<ProjectListNotifier, List<ProjectInfo>>((ref) {
