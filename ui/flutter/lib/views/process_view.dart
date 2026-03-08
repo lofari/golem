@@ -94,6 +94,14 @@ class _TerminalPane extends ConsumerStatefulWidget {
 }
 
 class _TerminalPaneState extends ConsumerState<_TerminalPane> {
+  final _controller = TerminalController();
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
     final terminal = ref.watch(processTerminalProvider(widget.processId));
@@ -112,7 +120,9 @@ class _TerminalPaneState extends ConsumerState<_TerminalPane> {
 
           return TerminalView(
             terminal,
+            controller: _controller,
             autofocus: true,
+            hardwareKeyboardOnly: true,
           );
         },
       ),
