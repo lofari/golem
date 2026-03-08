@@ -13,12 +13,13 @@ Running an AI agent in a loop without structure leads to:
 - Conflicting architectural choices across iterations
 - No visibility into what happened
 
-golem solves this with three information layers:
+golem solves this with four information layers:
 1. **Design docs** — Static intent (user-written plans and specs)
 2. **State** (`.ctx/state.yaml`) — Live progress: tasks, decisions, locked paths, pitfalls
 3. **Log** (`.ctx/log.yaml`) — Append-only session history
+4. **Knowledge graph** (`.ctx/graph.db`) — Code structure, embeddings, git history, and execution traces
 
-The agent reads all three at the start of every iteration and updates state/log at the end. No conversation history needed.
+The agent reads all four at the start of every iteration and updates state/log at the end. No conversation history needed. The knowledge graph automatically surfaces the most relevant code symbols for each task.
 
 ## Install
 
@@ -41,6 +42,10 @@ Requires [Claude Code](https://docs.anthropic.com/en/docs/claude-code) (`claude`
 ```bash
 # Initialize project context
 golem init --name "MyProject" --stack "Go, React" --docs "docs/"
+
+# Build the knowledge graph (optional but recommended)
+golem graph build
+golem graph embed
 
 # Plan interactively (opens Claude Code session)
 golem plan
@@ -173,6 +178,7 @@ golem code --review
 | `--sandbox` | `false` | Run Claude inside a warden sandbox container |
 | `--mcp` | `true` | Enable golem MCP server for structured state updates |
 | `--parallel` | `1` | Max parallel task sessions (1 = sequential) |
+| `--no-context-map` | `false` | Disable knowledge graph context injection |
 
 Each iteration:
 1. Reads state and remaining tasks
@@ -253,6 +259,25 @@ golem config set --global sandbox true  # set in global config
 golem config get max-tool-calls              # show resolved value
 golem config list                       # show all resolved values
 ```
+
+### `golem graph`
+
+Manages the code knowledge graph stored in `.ctx/graph.db`.
+
+```bash
+golem graph build              # build or rebuild the full graph
+golem graph build --depth 200  # limit git history depth
+golem graph embed              # generate vector embeddings
+golem graph status             # show graph statistics
+```
+
+| Subcommand | Description |
+|------------|-------------|
+| `build` | Scans the codebase with tree-sitter, indexes git history, and builds the graph |
+| `embed` | Generates 384-dimensional vector embeddings using a local ONNX model (bge-small-en-v1.5) |
+| `status` | Displays node/edge counts, embedding stats, history, and execution tracking info |
+
+The model (~30MB) is automatically downloaded to `~/.config/golem/models/` on first `golem graph embed`.
 
 ### `golem log`
 
@@ -341,6 +366,7 @@ your-project/
 │   ├── prompt.md           # Builder prompt template (customizable)
 │   ├── review-prompt.md    # Review prompt template (customizable)
 │   ├── qa-prompt.md        # QA prompt template (customizable)
+│   ├── graph.db            # Knowledge graph database (SQLite)
 │   ├── snapshots/          # Auto-managed state snapshots for rollback
 │   ├── sessions/           # Raw session output from each iteration
 │   └── mcp_servers.json    # Auto-generated MCP config (when --mcp is enabled)
@@ -414,6 +440,7 @@ Templates in `.ctx/` are customizable. They use three variables:
 | `{{DOCS_PATH}}` | Path to design docs (from `state.yaml`) |
 | `{{ITERATION_CONTEXT}}` | Auto-generated: "Iteration X of Y, Z tasks remaining" |
 | `{{INJECTED_CONTEXT}}` | Strategy-injected guidance (retry hints, warnings) — empty when not needed |
+| `{{CONTEXT_MAP}}` | Auto-generated: relevant code symbols from the knowledge graph |
 | `{{TASK_OVERRIDE}}` | Injected when `--task` flag is used |
 
 Edit `.ctx/prompt.md`, `.ctx/review-prompt.md`, or `.ctx/qa-prompt.md` to customize agent behavior.
@@ -430,6 +457,22 @@ golem includes a built-in [MCP](https://modelcontextprotocol.io/) server that gi
 | `add_pitfall` | Record a lesson learned |
 | `add_locked` | Lock a completed module path |
 | `log_session` | Append a session entry to the log |
+
+When the knowledge graph exists (`.ctx/graph.db`), the MCP server also exposes graph query tools:
+
+| Tool | Description |
+|------|-------------|
+| `find_callers` | Find functions that call a target |
+| `find_dependencies` | Find what a symbol or file depends on |
+| `find_dependents` | Find what depends on a symbol or file |
+| `graph_query` | General graph traversal (configurable direction, depth, edge types) |
+| `semantic_search` | Natural language search using embeddings |
+| `find_recent_changes` | Find commits affecting a file |
+| `find_file_history` | Get commit history for a file |
+| `find_co_changed` | Files that frequently change together |
+| `find_execution_failures` | Failed commands with stack traces |
+| `get_runtime_trace` | Command execution trace from a session |
+| `find_test_results` | Test results and which functions they exercise |
 
 The MCP server is enabled by default (`--mcp`). golem writes a temporary `mcp_servers.json` and passes it to Claude via `--mcp-config`. The server runs as a subprocess (`golem mcp-serve`) using stdio transport and uses file locking to prevent concurrent writes.
 
@@ -490,6 +533,37 @@ Success resets both failure and unproductive counters.
 | Task regression | Warning | Task status went from `done` to non-done |
 
 Signal handling: `SIGINT`/`SIGTERM` gracefully cancel the current iteration and stop the loop.
+
+## Knowledge Graph
+
+golem builds a code knowledge graph that gives the agent structural awareness of the codebase. The graph is stored in `.ctx/graph.db` (SQLite) and updated incrementally at the start of each iteration.
+
+### What it indexes
+
+- **Code structure** — Functions, methods, types, classes, imports, and call relationships. Extracted via tree-sitter for Go, Python, JavaScript, and TypeScript. Unsupported languages are indexed as file nodes.
+- **Documentation** — Markdown files parsed into document/section nodes.
+- **Git history** — Commits, authors, and co-change relationships (files that frequently change together).
+- **Execution traces** — Bash commands, test results, errors, and stack traces from agent sessions.
+
+### Context engine
+
+When the graph and embeddings exist, `golem code` automatically injects the most relevant symbols into each iteration's prompt. The context engine uses a 5-stage ranking pipeline:
+
+1. **Semantic search** — Embeds the current task text and finds the closest symbols by cosine similarity
+2. **Structural expansion** — Adds callers/callees of top hits (with score decay)
+3. **Co-change boost** — Boosts symbols in files that frequently change together
+4. **Recency boost** — Boosts symbols in recently modified files
+5. **Failure boost** — Boosts symbols related to failed tests from the last execution session
+
+The top N symbols (default 15) are formatted as a "Relevant Context" section in the prompt, giving the agent a starting point for each task.
+
+### Configuration
+
+```bash
+golem config set context-map true          # enable/disable (default: true)
+golem config set context-map-limit 20      # max symbols per iteration (default: 15)
+golem config set execution-history 5       # execution sessions to retain (default: 5)
+```
 
 ## Design Principles
 
