@@ -10,6 +10,7 @@ import (
 	"time"
 
 	golemctx "github.com/lofari/golem/internal/ctx"
+	"github.com/lofari/golem/internal/graph"
 )
 
 type BuilderConfig struct {
@@ -63,6 +64,20 @@ func RunBuilderLoop(ctx context.Context, cfg BuilderConfig) (BuilderResult, erro
 
 	if len(state.Tasks) == 0 {
 		return result, fmt.Errorf("no tasks in state.yaml — run `golem plan` first")
+	}
+
+	// Sync knowledge graph if it exists
+	graphPath := filepath.Join(cfg.Dir, ".ctx", "graph.db")
+	if _, statErr := os.Stat(graphPath); statErr == nil {
+		if gStore, gErr := graph.OpenStore(graphPath); gErr == nil {
+			gBuilder := graph.NewBuilder(gStore)
+			if syncErr := gBuilder.Sync(cfg.Dir); syncErr != nil {
+				fmt.Fprintf(os.Stderr, "golem: warning: graph sync failed: %v\n", syncErr)
+			} else {
+				fmt.Fprintf(os.Stderr, "golem: graph synced\n")
+			}
+			gStore.Close()
+		}
 	}
 
 	remaining := state.RemainingTasks()
