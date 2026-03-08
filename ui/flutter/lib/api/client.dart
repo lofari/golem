@@ -131,6 +131,56 @@ class GolemApiClient {
     await _putJson('/api/config', config.toJson());
   }
 
+  // Graph
+  Future<Map<String, dynamic>> getGraphStats(String projectId) async {
+    return _getJson('/api/projects/$projectId/graph/stats');
+  }
+
+  Future<List<dynamic>> graphSearch(
+      String projectId, String query,
+      {int limit = 10, List<String>? types}) async {
+    final body = <String, dynamic>{'query': query, 'limit': limit};
+    if (types != null && types.isNotEmpty) body['types'] = types;
+    final resp = await _http.post(
+      Uri.parse('$baseUrl/api/projects/$projectId/graph/search'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode(body),
+    );
+    if (resp.statusCode >= 400) {
+      final b = jsonDecode(resp.body) as Map<String, dynamic>;
+      throw ApiException(b['error'] as String? ?? 'Search failed');
+    }
+    return jsonDecode(resp.body) as List<dynamic>;
+  }
+
+  Future<Map<String, dynamic>> graphRelated(
+      String projectId, String name,
+      {String direction = 'all', int depth = 1}) async {
+    return _getJson(
+        '/api/projects/$projectId/graph/related?name=${Uri.encodeComponent(name)}&direction=$direction&depth=$depth');
+  }
+
+  Future<Map<String, dynamic>> getContextMap(
+      String projectId, String task,
+      {int limit = 15}) async {
+    return _getJson(
+        '/api/projects/$projectId/graph/context-map?task=${Uri.encodeComponent(task)}&limit=$limit');
+  }
+
+  // Diff
+  Future<Map<String, dynamic>> getDiff(String projectId, {String? ref}) async {
+    final query = ref != null ? '?ref=${Uri.encodeComponent(ref)}' : '';
+    return _getJson('/api/projects/$projectId/diff$query');
+  }
+
+  Future<String> getFilePatch(String projectId, String filePath,
+      {String? ref}) async {
+    final refQuery = ref != null ? '&ref=${Uri.encodeComponent(ref)}' : '';
+    final json = await _getJson(
+        '/api/projects/$projectId/diff?file=${Uri.encodeComponent(filePath)}$refQuery');
+    return json['patch'] as String? ?? '';
+  }
+
   // WebSocket URLs
   String processStreamUrl(String projectId, String processId) =>
       'ws://localhost:8314/api/projects/$projectId/processes/$processId/stream';
