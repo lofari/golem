@@ -224,6 +224,64 @@ func (s *Store) QueryErrorsBySession(sessionID string) ([]model.Error, error) {
 	return errors, rows.Err()
 }
 
+// DeleteExecution removes an execution and all its related data (commands, outputs, errors, test results, edges).
+func (s *Store) DeleteExecution(sessionID string) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	// Delete edges referencing execution nodes
+	_, err = tx.Exec(`DELETE FROM edges WHERE from_node LIKE ? OR to_node LIKE ?`,
+		"cmd:"+sessionID+":%", "cmd:"+sessionID+":%")
+	if err != nil {
+		return err
+	}
+	_, err = tx.Exec(`DELETE FROM edges WHERE from_node LIKE ? OR to_node LIKE ?`,
+		"err:"+sessionID+":%", "err:"+sessionID+":%")
+	if err != nil {
+		return err
+	}
+	_, err = tx.Exec(`DELETE FROM edges WHERE from_node LIKE ? OR to_node LIKE ?`,
+		"test:"+sessionID+":%", "test:"+sessionID+":%")
+	if err != nil {
+		return err
+	}
+
+	// Delete outputs (via command IDs)
+	_, err = tx.Exec(`DELETE FROM outputs WHERE command_id IN (SELECT id FROM commands WHERE session_id = ?)`, sessionID)
+	if err != nil {
+		return err
+	}
+
+	// Delete errors (via command IDs)
+	_, err = tx.Exec(`DELETE FROM errors WHERE command_id IN (SELECT id FROM commands WHERE session_id = ?)`, sessionID)
+	if err != nil {
+		return err
+	}
+
+	// Delete test results
+	_, err = tx.Exec(`DELETE FROM test_results WHERE session_id = ?`, sessionID)
+	if err != nil {
+		return err
+	}
+
+	// Delete commands
+	_, err = tx.Exec(`DELETE FROM commands WHERE session_id = ?`, sessionID)
+	if err != nil {
+		return err
+	}
+
+	// Delete execution
+	_, err = tx.Exec(`DELETE FROM executions WHERE session_id = ?`, sessionID)
+	if err != nil {
+		return err
+	}
+
+	return tx.Commit()
+}
+
 // CommandCount returns the total number of stored commands.
 func (s *Store) CommandCount() (int, error) {
 	var count int
