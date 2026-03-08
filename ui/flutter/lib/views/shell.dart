@@ -6,8 +6,10 @@ import '../providers/project.dart';
 import '../providers/processes.dart';
 import '../theme.dart';
 import 'dashboard.dart';
+import 'graph_explorer.dart';
 import 'process_view.dart';
 import 'launch_dialog.dart';
+import 'project_switcher.dart';
 import 'settings_dialog.dart';
 
 class ShellView extends ConsumerWidget {
@@ -15,7 +17,6 @@ class ShellView extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final projectInfo = ref.watch(projectInfoProvider);
     final connected = ref.watch(connectionProvider);
     final processes = ref.watch(processesProvider);
     final selectedProcessId = ref.watch(selectedProcessIdProvider);
@@ -25,8 +26,6 @@ class ShellView extends ConsumerWidget {
         children: [
           // Top bar
           _TopBar(
-            projectName: projectInfo?.name ?? 'Golem',
-            phase: projectInfo?.phase ?? '',
             onLaunch: () => _showLaunchDialog(context, ref),
             onPlan: () => _launchPlan(context, ref),
             onSettings: () => _showSettingsDialog(context, ref),
@@ -92,15 +91,11 @@ class ShellView extends ConsumerWidget {
 }
 
 class _TopBar extends StatelessWidget {
-  final String projectName;
-  final String phase;
   final VoidCallback onLaunch;
   final VoidCallback onPlan;
   final VoidCallback onSettings;
 
   const _TopBar({
-    required this.projectName,
-    required this.phase,
     required this.onLaunch,
     required this.onPlan,
     required this.onSettings,
@@ -117,32 +112,19 @@ class _TopBar extends StatelessWidget {
       ),
       child: Row(
         children: [
-          Text(
-            projectName,
-            style: const TextStyle(
-              fontSize: 15,
-              fontWeight: FontWeight.w600,
-              color: GolemTheme.textPrimary,
-            ),
-          ),
-          if (phase.isNotEmpty) ...[
-            const SizedBox(width: 8),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-              decoration: BoxDecoration(
-                color: GolemTheme.bgElevated,
-                borderRadius: BorderRadius.circular(4),
-              ),
-              child: Text(
-                phase,
-                style: const TextStyle(
-                  fontSize: 11,
-                  color: GolemTheme.textSecondary,
-                ),
-              ),
-            ),
-          ],
+          const ProjectSwitcher(),
           const Spacer(),
+          IconButton(
+            icon: const Icon(Icons.account_tree, size: 18),
+            color: GolemTheme.textSecondary,
+            onPressed: () => showDialog(
+              context: context,
+              builder: (_) => const GraphExplorer(),
+            ),
+            tooltip: 'Graph Explorer',
+            splashRadius: 18,
+          ),
+          const SizedBox(width: 4),
           _ActionButton(
             icon: Icons.add,
             label: 'Launch',

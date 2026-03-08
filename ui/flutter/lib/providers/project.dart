@@ -27,6 +27,10 @@ class ProjectInfoNotifier extends StateNotifier<ProjectInfo?> {
   }
 
   void refresh() => _fetch();
+
+  void set(ProjectInfo info) {
+    state = info;
+  }
 }
 
 // Project state (tasks, decisions, etc.)
