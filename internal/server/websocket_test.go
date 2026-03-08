@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"net/http/httptest"
 	"testing"
@@ -26,15 +27,15 @@ func TestWebSocketProcessStream(t *testing.T) {
 			Command: "code",
 			Status:  "running",
 		},
-		output: newRingBuffer(100),
-		subs:   make(map[chan string]struct{}),
+		output: newRawBuffer(1024),
+		subs:   make(map[chan []byte]struct{}),
 	}
 	srv.mu.Lock()
 	srv.processes["test-proc"] = mp
 	srv.mu.Unlock()
 
 	// Write backlog
-	mp.output.Write("hello world\n")
+	mp.output.Write([]byte("hello world\n"))
 
 	// Connect WebSocket
 	wsURL := "ws" + ts.URL[4:] + "/api/projects/" + pid + "/processes/test-proc/stream"
@@ -60,7 +61,11 @@ func TestWebSocketProcessStream(t *testing.T) {
 	if wsMsg.Type != "output" {
 		t.Fatalf("expected type 'output', got %q", wsMsg.Type)
 	}
-	if wsMsg.Line != "hello world\n" {
-		t.Fatalf("expected line 'hello world\\n', got %q", wsMsg.Line)
+	decoded, err := base64.StdEncoding.DecodeString(wsMsg.Data)
+	if err != nil {
+		t.Fatalf("failed to decode base64: %v", err)
+	}
+	if string(decoded) != "hello world\n" {
+		t.Fatalf("expected 'hello world\\n', got %q", string(decoded))
 	}
 }
