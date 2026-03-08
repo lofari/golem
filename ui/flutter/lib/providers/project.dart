@@ -44,6 +44,7 @@ class ProjectStateNotifier extends StateNotifier<ProjectState?> {
   final GolemApiClient _api;
   final String? _projectId;
   GolemWebSocket? _ws;
+  void Function(Map<String, dynamic>)? _onLogAppended;
 
   ProjectStateNotifier(this._api, this._projectId) : super(null) {
     if (_projectId != null) {
@@ -51,6 +52,9 @@ class ProjectStateNotifier extends StateNotifier<ProjectState?> {
       _connectWs();
     }
   }
+
+  set onLogAppended(void Function(Map<String, dynamic>)? cb) =>
+      _onLogAppended = cb;
 
   Future<void> _fetch() async {
     try {
@@ -64,6 +68,9 @@ class ProjectStateNotifier extends StateNotifier<ProjectState?> {
       onMessage: (data) {
         if (data['type'] == 'state_changed' && data['state'] != null) {
           state = ProjectState.fromJson(data['state'] as Map<String, dynamic>);
+        }
+        if (data['type'] == 'log_appended') {
+          _onLogAppended?.call(data);
         }
       },
     );
@@ -81,7 +88,23 @@ class ProjectStateNotifier extends StateNotifier<ProjectState?> {
 final sessionsProvider = StateNotifierProvider<SessionsNotifier, List<Session>>((ref) {
   final projectInfo = ref.watch(projectInfoProvider);
   final api = ref.read(apiClientProvider);
-  return SessionsNotifier(api, projectInfo?.id);
+  final projectState = ref.watch(projectStateProvider.notifier);
+  final notifier = SessionsNotifier(api, projectInfo?.id);
+
+  // Register callback so WebSocket log_appended events update sessions.
+  projectState.onLogAppended = (data) {
+    if (data['session'] != null) {
+      final session =
+          Session.fromJson(data['session'] as Map<String, dynamic>);
+      notifier.addSession(session);
+    }
+  };
+
+  ref.onDispose(() {
+    projectState.onLogAppended = null;
+  });
+
+  return notifier;
 });
 
 class SessionsNotifier extends StateNotifier<List<Session>> {
