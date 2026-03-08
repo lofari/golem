@@ -3,11 +3,113 @@ package context
 import (
 	gocontext "context"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/lofari/golem/internal/graph"
 	"github.com/lofari/golem/internal/graph/embed"
 )
+
+const (
+	semanticSearchLimit = 30
+	recentCommitWindow  = 10
+)
+
+// BuildContextMap produces a ranked context map for the given task.
+// Returns an empty map (not an error) when embeddings are unavailable.
+func BuildContextMap(store *graph.Store, embedder embed.Embedder, taskText string, limit int) (*ContextMap, error) {
+	cm := &ContextMap{Task: taskText}
+
+	if limit < 1 {
+		limit = 15
+	}
+
+	// Stage 1: Semantic search
+	seeds, err := semanticCandidates(store, embedder, taskText, semanticSearchLimit)
+	if err != nil {
+		return cm, fmt.Errorf("semantic search: %w", err)
+	}
+	if len(seeds) == 0 {
+		return cm, nil
+	}
+
+	// Stage 2: Structural expansion
+	expanded := structuralExpansion(store, seeds)
+
+	// Merge seeds + expanded
+	all := append(seeds, expanded...)
+
+	// Stage 3: Co-change boost
+	all = coChangeBoost(store, all)
+
+	// Stage 4: Recency boost
+	all = recencyBoost(store, all, recentCommitWindow)
+
+	// Stage 5: Failure boost
+	all = failureBoost(store, all)
+
+	// Deduplicate: keep highest score per node ID
+	best := make(map[string]candidate)
+	for _, c := range all {
+		if existing, ok := best[c.Node.ID]; !ok || c.Score > existing.Score {
+			best[c.Node.ID] = c
+		}
+	}
+
+	// Convert to slice and sort
+	deduped := make([]candidate, 0, len(best))
+	for _, c := range best {
+		deduped = append(deduped, c)
+	}
+	sort.Slice(deduped, func(i, j int) bool {
+		return deduped[i].Score > deduped[j].Score
+	})
+
+	// Limit
+	if len(deduped) > limit {
+		deduped = deduped[:limit]
+	}
+
+	// Build relations and convert to SymbolEntries
+	for _, c := range deduped {
+		relations := buildRelations(store, c.Node)
+		cm.Symbols = append(cm.Symbols, SymbolEntry{
+			Name:      c.Node.Name,
+			Kind:      c.Node.Type,
+			Path:      c.Node.Path,
+			Line:      c.Node.Line,
+			Score:     c.Score,
+			Relations: relations,
+		})
+	}
+
+	return cm, nil
+}
+
+// buildRelations produces human-readable relation strings for a node.
+func buildRelations(store *graph.Store, node graph.Node) []string {
+	var relations []string
+
+	outEdges, _ := store.EdgesFrom(node.ID)
+	for _, e := range outEdges {
+		if e.Type == "CALLS" {
+			if target, _ := store.NodeByID(e.To); target != nil {
+				relations = append(relations, "calls "+target.Name)
+			}
+		}
+	}
+
+	inEdges, _ := store.EdgesTo(node.ID)
+	for _, e := range inEdges {
+		if e.Type == "CALLS" {
+			if source, _ := store.NodeByID(e.From); source != nil {
+				relations = append(relations, "called by "+source.Name)
+			}
+		}
+	}
+
+	return relations
+}
 
 // candidate is an internal scored symbol during ranking.
 type candidate struct {

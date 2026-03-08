@@ -2,6 +2,7 @@ package context
 
 import (
 	gocontext "context"
+	"fmt"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -129,6 +130,79 @@ func TestSemanticCandidates(t *testing.T) {
 	// First candidate should be the most semantically similar
 	if candidates[0].Node.Name != "ValidateCredentials" {
 		t.Errorf("expected ValidateCredentials first, got %s", candidates[0].Node.Name)
+	}
+}
+
+func TestBuildContextMap_NoEmbeddings(t *testing.T) {
+	store := setupTestStore(t)
+	embedder := &fakeEmbedder{}
+
+	task := "fix login"
+	cm, err := BuildContextMap(store, embedder, task, 15)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cm.Symbols) != 0 {
+		t.Errorf("expected no symbols when no embeddings, got %d", len(cm.Symbols))
+	}
+}
+
+func TestBuildContextMap_Deduplication(t *testing.T) {
+	store := setupTestStore(t)
+	embedder := &fakeEmbedder{}
+
+	// Insert a node with embedding
+	nodes := []graph.Node{
+		{ID: "func:a.go:Foo", Type: "function", Name: "Foo", Path: "a.go", Line: 10},
+		{ID: "func:b.go:Bar", Type: "function", Name: "Bar", Path: "b.go", Line: 20},
+	}
+	edges := []graph.Edge{
+		{From: "func:a.go:Foo", To: "func:b.go:Bar", Type: "CALLS"},
+	}
+	store.InsertBatch(nodes, edges)
+	store.InsertEmbedding(nodes[0].ID, embedder.vectorFor("foo function"))
+	store.InsertEmbedding(nodes[1].ID, embedder.vectorFor("bar function"))
+
+	cm, err := BuildContextMap(store, embedder, "foo bar", 15)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Each symbol should appear at most once
+	seen := make(map[string]int)
+	for _, s := range cm.Symbols {
+		seen[s.Name]++
+	}
+	for name, count := range seen {
+		if count > 1 {
+			t.Errorf("symbol %s appears %d times, expected 1", name, count)
+		}
+	}
+}
+
+func TestBuildContextMap_Limit(t *testing.T) {
+	store := setupTestStore(t)
+	embedder := &fakeEmbedder{}
+
+	// Insert many nodes
+	var nodes []graph.Node
+	for i := 0; i < 20; i++ {
+		name := fmt.Sprintf("Func%d", i)
+		id := fmt.Sprintf("func:f%d.go:%s", i, name)
+		path := fmt.Sprintf("f%d.go", i)
+		nodes = append(nodes, graph.Node{ID: id, Type: "function", Name: name, Path: path, Line: i + 1})
+	}
+	store.InsertBatch(nodes, nil)
+	for _, n := range nodes {
+		store.InsertEmbedding(n.ID, embedder.vectorFor(n.Name))
+	}
+
+	cm, err := BuildContextMap(store, embedder, "some task", 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cm.Symbols) > 5 {
+		t.Errorf("expected at most 5 symbols, got %d", len(cm.Symbols))
 	}
 }
 
