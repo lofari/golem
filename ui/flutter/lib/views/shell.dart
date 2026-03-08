@@ -90,7 +90,7 @@ class ShellView extends ConsumerWidget {
   }
 }
 
-class _TopBar extends StatelessWidget {
+class _TopBar extends ConsumerWidget {
   final VoidCallback onLaunch;
   final VoidCallback onPlan;
   final VoidCallback onSettings;
@@ -102,7 +102,10 @@ class _TopBar extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final projectState = ref.watch(projectStateProvider);
+    final phase = projectState?.status.phase ?? '';
+
     return Container(
       height: 48,
       padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -113,6 +116,24 @@ class _TopBar extends StatelessWidget {
       child: Row(
         children: [
           const ProjectSwitcher(),
+          if (phase.isNotEmpty) ...[
+            const SizedBox(width: 12),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+              decoration: BoxDecoration(
+                color: GolemTheme.phaseColor(phase).withValues(alpha: 0.15),
+                borderRadius: BorderRadius.circular(4),
+              ),
+              child: Text(
+                phase,
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                  color: GolemTheme.phaseColor(phase),
+                ),
+              ),
+            ),
+          ],
           const Spacer(),
           IconButton(
             icon: const Icon(Icons.account_tree, size: 18),
@@ -184,7 +205,7 @@ class _ActionButton extends StatelessWidget {
   }
 }
 
-class _ProcessTabs extends StatelessWidget {
+class _ProcessTabs extends StatefulWidget {
   final List<ProcessInfo> processes;
   final String? selectedId;
   final ValueChanged<String> onSelect;
@@ -199,6 +220,33 @@ class _ProcessTabs extends StatelessWidget {
     required this.showDashboardTab,
   });
 
+  @override
+  State<_ProcessTabs> createState() => _ProcessTabsState();
+}
+
+class _ProcessTabsState extends State<_ProcessTabs>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _pulseController;
+  late final Animation<double> _pulseAnimation;
+
+  @override
+  void initState() {
+    super.initState();
+    _pulseController = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 1),
+    )..repeat(reverse: true);
+    _pulseAnimation = Tween<double>(begin: 0.3, end: 1.0).animate(
+      CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut),
+    );
+  }
+
+  @override
+  void dispose() {
+    _pulseController.dispose();
+    super.dispose();
+  }
+
   Color _statusColor(String status) {
     switch (status) {
       case 'running':
@@ -210,89 +258,104 @@ class _ProcessTabs extends StatelessWidget {
     }
   }
 
+  Widget _buildStatusDot(String status) {
+    final dot = Container(
+      width: 7,
+      height: 7,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        color: _statusColor(status),
+      ),
+    );
+
+    if (status == 'running') {
+      return FadeTransition(
+        opacity: _pulseAnimation,
+        child: dot,
+      );
+    }
+    return dot;
+  }
+
   @override
   Widget build(BuildContext context) {
     return Container(
       height: 36,
+      padding: const EdgeInsets.symmetric(horizontal: 8),
       decoration: const BoxDecoration(
         border: Border(bottom: BorderSide(color: GolemTheme.border)),
       ),
       child: Row(
         children: [
-          ...processes.map((p) {
-            final isSelected = p.id == selectedId;
-            return GestureDetector(
-              onTap: () => onSelect(p.id),
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12),
-                decoration: BoxDecoration(
-                  border: Border(
-                    bottom: BorderSide(
-                      color: isSelected ? GolemTheme.accent : Colors.transparent,
-                      width: 2,
-                    ),
+          ...widget.processes.map((p) {
+            final isSelected = p.id == widget.selectedId;
+            return Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 2),
+              child: GestureDetector(
+                onTap: () => widget.onSelect(p.id),
+                child: Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: isSelected
+                        ? GolemTheme.accent.withValues(alpha: 0.15)
+                        : Colors.transparent,
+                    borderRadius: BorderRadius.circular(6),
                   ),
-                ),
-                child: Row(
-                  children: [
-                    Container(
-                      width: 7,
-                      height: 7,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        color: _statusColor(p.status),
+                  child: Row(
+                    children: [
+                      _buildStatusDot(p.status),
+                      const SizedBox(width: 6),
+                      Text(
+                        p.command,
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: isSelected
+                              ? GolemTheme.accent
+                              : GolemTheme.textSecondary,
+                        ),
                       ),
-                    ),
-                    const SizedBox(width: 6),
-                    Text(
-                      p.command,
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: isSelected
-                            ? GolemTheme.textPrimary
-                            : GolemTheme.textSecondary,
-                      ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
             );
           }),
-          if (showDashboardTab)
-            GestureDetector(
-              onTap: onDashboard,
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12),
-                decoration: BoxDecoration(
-                  border: Border(
-                    bottom: BorderSide(
-                      color: selectedId == null
-                          ? GolemTheme.accent
-                          : Colors.transparent,
-                      width: 2,
-                    ),
+          if (widget.showDashboardTab)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 2),
+              child: GestureDetector(
+                onTap: widget.onDashboard,
+                child: Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: widget.selectedId == null
+                        ? GolemTheme.accent.withValues(alpha: 0.15)
+                        : Colors.transparent,
+                    borderRadius: BorderRadius.circular(6),
                   ),
-                ),
-                child: Row(
-                  children: [
-                    Icon(
-                      Icons.dashboard_outlined,
-                      size: 14,
-                      color: selectedId == null
-                          ? GolemTheme.textPrimary
-                          : GolemTheme.textSecondary,
-                    ),
-                    const SizedBox(width: 4),
-                    Text(
-                      'Dashboard',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: selectedId == null
-                            ? GolemTheme.textPrimary
+                  child: Row(
+                    children: [
+                      Icon(
+                        Icons.dashboard_outlined,
+                        size: 14,
+                        color: widget.selectedId == null
+                            ? GolemTheme.accent
                             : GolemTheme.textSecondary,
                       ),
-                    ),
-                  ],
+                      const SizedBox(width: 4),
+                      Text(
+                        'Dashboard',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: widget.selectedId == null
+                              ? GolemTheme.accent
+                              : GolemTheme.textSecondary,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
             ),
@@ -302,14 +365,19 @@ class _ProcessTabs extends StatelessWidget {
   }
 }
 
-class _StatusBar extends StatelessWidget {
+class _StatusBar extends ConsumerWidget {
   final bool connected;
   final int processCount;
 
   const _StatusBar({required this.connected, required this.processCount});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final projectState = ref.watch(projectStateProvider);
+    final hasRunning = processCount > 0;
+    final phase = projectState?.status.phase ?? '';
+    final focus = projectState?.status.currentFocus ?? '';
+
     return Container(
       height: 28,
       padding: const EdgeInsets.symmetric(horizontal: 12),
@@ -337,8 +405,51 @@ class _StatusBar extends StatelessWidget {
               color: GolemTheme.textSecondary,
             ),
           ),
+          const Spacer(),
+          if (hasRunning && phase.isNotEmpty)
+            _buildIterationInfo(phase, focus),
         ],
       ),
+    );
+  }
+
+  Widget _buildIterationInfo(String phase, String focus) {
+    final phaseColor = GolemTheme.phaseColor(phase);
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          'Phase: ',
+          style: TextStyle(
+            fontSize: 11,
+            color: GolemTheme.textSecondary,
+          ),
+        ),
+        Text(
+          phase,
+          style: TextStyle(
+            fontSize: 11,
+            fontWeight: FontWeight.w600,
+            color: phaseColor,
+          ),
+        ),
+        if (focus.isNotEmpty) ...[
+          Text(
+            ' \u00B7 Focus: ',
+            style: TextStyle(
+              fontSize: 11,
+              color: GolemTheme.textSecondary,
+            ),
+          ),
+          Text(
+            focus,
+            style: const TextStyle(
+              fontSize: 11,
+              color: GolemTheme.textPrimary,
+            ),
+          ),
+        ],
+      ],
     );
   }
 }
