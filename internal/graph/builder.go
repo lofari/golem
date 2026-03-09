@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/lofari/golem/internal/graph/lsp"
 	"github.com/lofari/golem/internal/graph/markdown"
 	"github.com/lofari/golem/internal/graph/treesitter"
 )
@@ -31,6 +32,7 @@ var skipDirs = map[string]bool{
 type Builder struct {
 	store        *Store
 	historyDepth int
+	lspManager   *lsp.Manager
 }
 
 // NewBuilder creates a new graph builder. An optional historyDepth controls
@@ -41,6 +43,11 @@ func NewBuilder(store *Store, historyDepth ...int) *Builder {
 		depth = historyDepth[0]
 	}
 	return &Builder{store: store, historyDepth: depth}
+}
+
+// WithLSP sets the LSP manager for enhanced extraction.
+func (b *Builder) WithLSP(mgr *lsp.Manager) {
+	b.lspManager = mgr
 }
 
 // BuildFull does a complete rebuild of the graph from the project directory.
@@ -68,16 +75,19 @@ func (b *Builder) BuildFull(projectPath string) error {
 		// Get relative path
 		relPath, _ := filepath.Rel(projectPath, path)
 
-		// Read file
+		// Try LSP extraction first
+		if b.extractWithLSP(projectPath, relPath, &allNodes, &allEdges) {
+			return nil
+		}
+
+		// Tree-sitter fallback
 		src, err := os.ReadFile(path)
 		if err != nil {
 			return nil // skip unreadable files
 		}
 
-		// Parse and extract
 		lang := treesitter.DetectLanguage(relPath)
 		if lang == "" {
-			// Unsupported language — create file node only
 			nodes, edges := treesitter.ExtractFileOnly(relPath)
 			allNodes = append(allNodes, nodes...)
 			allEdges = append(allEdges, edges...)
@@ -162,7 +172,15 @@ func (b *Builder) Sync(projectPath string) error {
 			continue // file was deleted
 		}
 
-		// Re-parse and insert
+		// Try LSP extraction first
+		var nodes []Node
+		var edges []Edge
+		if b.extractWithLSP(projectPath, relPath, &nodes, &edges) {
+			b.store.InsertBatch(nodes, edges)
+			continue
+		}
+
+		// Tree-sitter fallback
 		src, err := os.ReadFile(fullPath)
 		if err != nil {
 			continue
@@ -170,8 +188,8 @@ func (b *Builder) Sync(projectPath string) error {
 
 		lang := treesitter.DetectLanguage(relPath)
 		if lang == "" {
-			nodes, edges := treesitter.ExtractFileOnly(relPath)
-			b.store.InsertBatch(nodes, edges)
+			n, e := treesitter.ExtractFileOnly(relPath)
+			b.store.InsertBatch(n, e)
 			continue
 		}
 
@@ -180,7 +198,7 @@ func (b *Builder) Sync(projectPath string) error {
 			continue
 		}
 
-		nodes, edges := treesitter.Extract(relPath, lang, tree, src)
+		nodes, edges = treesitter.Extract(relPath, lang, tree, src)
 		b.store.InsertBatch(nodes, edges)
 	}
 
@@ -295,6 +313,28 @@ func (b *Builder) indexDocs(projectPath string, existingNodes []Node) error {
 		return b.store.InsertBatch(docNodes, docEdges)
 	}
 	return nil
+}
+
+// extractWithLSP tries to extract nodes/edges using LSP. Returns true if successful.
+func (b *Builder) extractWithLSP(projectPath, relPath string, nodes *[]Node, edges *[]Edge) bool {
+	if b.lspManager == nil {
+		return false
+	}
+	cfg := lsp.ConfigForExt(filepath.Ext(relPath))
+	if cfg == nil {
+		return false
+	}
+	client := b.lspManager.ClientFor(cfg.Language)
+	if client == nil {
+		return false
+	}
+	n, e, err := lsp.Extract(client, projectPath, relPath)
+	if err != nil {
+		return false
+	}
+	*nodes = append(*nodes, n...)
+	*edges = append(*edges, e...)
+	return true
 }
 
 // --- Git helpers ---
