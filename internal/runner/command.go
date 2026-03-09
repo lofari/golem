@@ -90,21 +90,27 @@ func (c *ClaudeRunner) Run(ctx context.Context, dir string, prompt string, maxTu
 }
 
 // WriteMCPConfig writes a temporary mcp_servers.json for this session.
+// If noLSP is true, the spawned MCP server will not start LSP servers.
 // Returns the path to the config file.
-func WriteMCPConfig(dir string) (string, error) {
+func WriteMCPConfig(dir string, noLSP bool) (string, error) {
 	golemBin, err := os.Executable()
 	if err != nil {
 		return "", fmt.Errorf("finding golem binary: %w", err)
+	}
+
+	args := fmt.Sprintf(`"mcp-serve", "--dir", %q`, dir)
+	if noLSP {
+		args += `, "--no-lsp"`
 	}
 
 	config := fmt.Sprintf(`{
   "mcpServers": {
     "golem": {
       "command": %q,
-      "args": ["mcp-serve", "--dir", %q]
+      "args": [%s]
     }
   }
-}`, golemBin, dir)
+}`, golemBin, args)
 
 	configPath := filepath.Join(dir, ".ctx", "mcp_servers.json")
 	if err := os.WriteFile(configPath, []byte(config), 0644); err != nil {

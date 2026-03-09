@@ -31,7 +31,7 @@ var reviewCmd = &cobra.Command{
 		claudeRunner := newClaudeRunner(rc)
 
 		if rc.MCP {
-			mcpPath, mcpErr := runner.WriteMCPConfig(dir)
+			mcpPath, mcpErr := runner.WriteMCPConfig(dir, true)
 			if mcpErr != nil {
 				fmt.Fprintf(os.Stderr, "golem: warning: could not write MCP config: %v\n", mcpErr)
 			} else {

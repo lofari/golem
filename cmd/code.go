@@ -31,6 +31,7 @@ var codeCmd = &cobra.Command{
 		rc := resolveConfig(cmd, dir)
 		claudeRunner := newClaudeRunner(rc)
 
+		noLSP, _ := cmd.Flags().GetBool("no-lsp")
 		result, err := runner.RunBuilderLoop(ctx, runner.BuilderConfig{
 			Dir:           dir,
 			MaxIterations: rc.MaxIterations,
@@ -44,6 +45,7 @@ var codeCmd = &cobra.Command{
 			ExecutionHistory: rc.ExecutionHistory,
 			ContextMap:       rc.ContextMap,
 			ContextMapLimit:  rc.ContextMapLimit,
+			LSPEnabled:       !noLSP,
 			Runner:           claudeRunner,
 		})
 		if err != nil {
@@ -69,4 +71,5 @@ func init() {
 	addAgentFlags(codeCmd)
 	codeCmd.Flags().Bool("review", false, "run review pass after builder completes")
 	codeCmd.Flags().Int("parallel", 1, "max parallel task sessions (1 = sequential)")
+	codeCmd.Flags().Bool("no-lsp", false, "disable LSP servers during sessions")
 }
