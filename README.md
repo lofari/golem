@@ -61,6 +61,8 @@ go build -o golem .
 
 ## Quick Start
 
+### CLI
+
 ```bash
 # Initialize project context
 golem init --name "MyProject" --stack "Go, React" --docs "docs/"
@@ -84,6 +86,15 @@ golem qa
 # Check status anytime
 golem status
 ```
+
+### Desktop UI
+
+```bash
+# Launch the desktop app (starts server + opens UI)
+golem ui
+```
+
+`golem ui` starts an API server on `:8314` and launches the desktop app (`golem-ui`). From the UI you can create and manage projects, launch iterations, and monitor progress visually. If the desktop app binary isn't installed, the server runs standalone at `http://localhost:8314`.
 
 ### Permissions
 
