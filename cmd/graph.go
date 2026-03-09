@@ -6,10 +6,13 @@ import (
 	"path/filepath"
 	"time"
 
+	"strings"
+
 	"github.com/spf13/cobra"
 
 	"github.com/lofari/golem/internal/graph"
 	"github.com/lofari/golem/internal/graph/embed"
+	"github.com/lofari/golem/internal/graph/lsp"
 	"github.com/lofari/golem/internal/scaffold"
 )
 
@@ -39,7 +42,31 @@ var graphBuildCmd = &cobra.Command{
 		defer store.Close()
 
 		depth, _ := cmd.Flags().GetInt("depth")
+		noLSP, _ := cmd.Flags().GetBool("no-lsp")
+
+		// Detect and start LSP servers
+		var lspMgr *lsp.Manager
+		if !noLSP {
+			files := collectMCPFileExtensions(dir)
+			detected := lsp.DetectLanguages(files)
+			available, missing := lsp.CheckAvailability(detected)
+			for _, m := range missing {
+				fmt.Fprintf(os.Stderr, "golem: %s not found. Install: %s\n", m.Binary, m.InstallHint)
+			}
+			if len(available) > 0 {
+				lspMgr = lsp.NewManager(dir)
+				fmt.Fprintf(os.Stderr, "golem: starting LSP servers: %v\n", langList(available))
+				if err := lspMgr.Start(available); err != nil {
+					fmt.Fprintf(os.Stderr, "golem: LSP start error: %v\n", err)
+				}
+				defer lspMgr.Shutdown()
+			}
+		}
+
 		builder := graph.NewBuilder(store, depth)
+		if lspMgr != nil {
+			builder.WithLSP(lspMgr)
+		}
 
 		fmt.Fprintf(os.Stderr, "golem: building code graph...\n")
 		if err := builder.BuildFull(dir); err != nil {
@@ -208,4 +235,13 @@ func init() {
 	graphCmd.AddCommand(graphEmbedCmd)
 
 	graphBuildCmd.Flags().IntP("depth", "d", 500, "number of git commits to index for history")
+	graphBuildCmd.Flags().Bool("no-lsp", false, "disable LSP extraction (use tree-sitter only)")
+}
+
+func langList(configs []lsp.ServerConfig) string {
+	var names []string
+	for _, c := range configs {
+		names = append(names, c.Language)
+	}
+	return strings.Join(names, ", ")
 }
