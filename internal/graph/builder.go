@@ -118,10 +118,9 @@ func (b *Builder) BuildFull(projectPath string) error {
 		return fmt.Errorf("index docs: %w", err)
 	}
 
-	// Index git history (best-effort — project may not be a git repo)
-	hb := NewHistoryBuilder(b.store, b.historyDepth)
-	if err := hb.Build(projectPath); err != nil {
-		// Non-fatal: history is optional (project may not be a git repo)
+	// Compute co-change edges (best-effort — project may not be a git repo)
+	if err := ComputeCoChanged(b.store, projectPath, b.historyDepth); err != nil {
+		// Non-fatal: co-change is optional (project may not be a git repo)
 	}
 
 	// Record indexing metadata
@@ -214,10 +213,9 @@ func (b *Builder) Sync(projectPath string) error {
 		}
 	}
 
-	// Sync git history (best-effort — project may not be a git repo)
-	hb := NewHistoryBuilder(b.store, b.historyDepth)
-	if err := hb.Sync(projectPath); err != nil {
-		// Non-fatal: history is optional (project may not be a git repo)
+	// Recompute co-change edges (best-effort — project may not be a git repo)
+	if err := ComputeCoChanged(b.store, projectPath, b.historyDepth); err != nil {
+		// Non-fatal: co-change is optional (project may not be a git repo)
 	}
 
 	// Update metadata

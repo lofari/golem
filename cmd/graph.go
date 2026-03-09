@@ -54,12 +54,10 @@ var graphBuildCmd = &cobra.Command{
 			fmt.Fprintf(os.Stderr, "golem:   %s: %d\n", t, count)
 		}
 
-		// Print history stats
-		commitCount, _ := store.CommitCount()
-		authorCount, _ := store.AuthorCount()
+		// Print co-change stats
 		coCount, _ := store.CoChangedCount()
-		if commitCount > 0 {
-			fmt.Fprintf(os.Stderr, "golem: history — %d commits, %d authors, %d co-change pairs\n", commitCount, authorCount, coCount)
+		if coCount > 0 {
+			fmt.Fprintf(os.Stderr, "golem: co-change pairs: %d\n", coCount)
 		}
 
 		return nil
@@ -133,17 +131,10 @@ var graphStatusCmd = &cobra.Command{
 			}
 		}
 
-		// History stats
-		commitCount, _ := store.CommitCount()
-		authorCount, _ := store.AuthorCount()
+		// Co-change stats
 		coCount, _ := store.CoChangedCount()
-		if commitCount > 0 {
-			fmt.Printf("\nHistory: %d commits, %d authors\n", commitCount, authorCount)
-			fmt.Printf("Co-change pairs: %d\n", coCount)
-			historyCommit, _ := store.GetMeta("history_last_sha")
-			if historyCommit != "" {
-				fmt.Printf("Last history commit: %s\n", historyCommit[:min(len(historyCommit), 12)])
-			}
+		if coCount > 0 {
+			fmt.Printf("\nCo-change pairs: %d\n", coCount)
 		}
 
 		// Execution stats

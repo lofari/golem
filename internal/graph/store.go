@@ -31,8 +31,6 @@ type SimilarResult struct {
 type Node = model.Node
 type Edge = model.Edge
 type Stats = model.Stats
-type Commit = model.Commit
-type Author = model.Author
 type CoChangedResult = model.CoChangedResult
 
 // Store is the SQLite-backed graph storage.
@@ -74,26 +72,11 @@ func (s *Store) init() error {
 			key   TEXT PRIMARY KEY,
 			value TEXT
 		);
-		CREATE TABLE IF NOT EXISTS commits (
-			sha          TEXT PRIMARY KEY,
-			message      TEXT NOT NULL,
-			author_email TEXT NOT NULL,
-			timestamp    INTEGER NOT NULL,
-			additions    INTEGER DEFAULT 0,
-			deletions    INTEGER DEFAULT 0
-		);
-		CREATE TABLE IF NOT EXISTS authors (
-			email TEXT PRIMARY KEY,
-			name  TEXT NOT NULL
-		);
 		CREATE INDEX IF NOT EXISTS idx_edges_from ON edges(from_node);
 		CREATE INDEX IF NOT EXISTS idx_edges_to ON edges(to_node);
 		CREATE INDEX IF NOT EXISTS idx_edges_type ON edges(type);
 		CREATE INDEX IF NOT EXISTS idx_nodes_type ON nodes(type);
 		CREATE INDEX IF NOT EXISTS idx_nodes_path ON nodes(path);
-		CREATE INDEX IF NOT EXISTS idx_commits_author ON commits(author_email);
-		CREATE INDEX IF NOT EXISTS idx_commits_timestamp ON commits(timestamp);
-
 		CREATE VIRTUAL TABLE IF NOT EXISTS vec_embeddings USING vec0(
 			node_id TEXT PRIMARY KEY,
 			embedding float[384]
@@ -213,7 +196,7 @@ func (s *Store) DeleteByPath(path string) error {
 
 // Clear removes all nodes and edges.
 func (s *Store) Clear() error {
-	_, err := s.db.Exec("DELETE FROM nodes; DELETE FROM edges; DELETE FROM commits; DELETE FROM authors;")
+	_, err := s.db.Exec("DELETE FROM nodes; DELETE FROM edges;")
 	return err
 }
 
@@ -400,52 +383,6 @@ func (s *Store) EmbeddingCount() (int, error) {
 	return count, err
 }
 
-// InsertCommitBatch inserts commits in a single transaction.
-func (s *Store) InsertCommitBatch(commits []Commit) error {
-	tx, err := s.db.Begin()
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-
-	stmt, err := tx.Prepare("INSERT OR REPLACE INTO commits (sha, message, author_email, timestamp, additions, deletions) VALUES (?, ?, ?, ?, ?, ?)")
-	if err != nil {
-		return err
-	}
-	defer stmt.Close()
-
-	for _, c := range commits {
-		if _, err := stmt.Exec(c.SHA, c.Message, c.AuthorEmail, c.Timestamp, c.Additions, c.Deletions); err != nil {
-			return fmt.Errorf("inserting commit %s: %w", c.SHA, err)
-		}
-	}
-
-	return tx.Commit()
-}
-
-// InsertAuthorBatch upserts authors in a single transaction.
-func (s *Store) InsertAuthorBatch(authors []Author) error {
-	tx, err := s.db.Begin()
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-
-	stmt, err := tx.Prepare("INSERT OR REPLACE INTO authors (email, name) VALUES (?, ?)")
-	if err != nil {
-		return err
-	}
-	defer stmt.Close()
-
-	for _, a := range authors {
-		if _, err := stmt.Exec(a.Email, a.Name); err != nil {
-			return fmt.Errorf("inserting author %s: %w", a.Email, err)
-		}
-	}
-
-	return tx.Commit()
-}
-
 // InsertEdgeWithWeight inserts an edge with a weight value.
 func (s *Store) InsertEdgeWithWeight(from, to, edgeType string, weight int) error {
 	_, err := s.db.Exec(
@@ -453,159 +390,6 @@ func (s *Store) InsertEdgeWithWeight(from, to, edgeType string, weight int) erro
 		from, to, edgeType, weight,
 	)
 	return err
-}
-
-// QueryAuthorByEmail returns an author by email.
-func (s *Store) QueryAuthorByEmail(email string) (*Author, error) {
-	var a Author
-	err := s.db.QueryRow("SELECT email, name FROM authors WHERE email = ?", email).Scan(&a.Email, &a.Name)
-	if err == sql.ErrNoRows {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-	return &a, nil
-}
-
-// QueryRecentChanges returns commits that modified files matching the given node pattern, ordered by timestamp descending.
-// Pattern can be an exact node ID like "file:path" or a prefix like "file:dir/" for directory matching.
-func (s *Store) QueryRecentChanges(nodePattern string, isPrefix bool, limit int) ([]Commit, error) {
-	var rows *sql.Rows
-	var err error
-	if isPrefix {
-		rows, err = s.db.Query(`
-			SELECT DISTINCT c.sha, c.message, c.author_email, c.timestamp, c.additions, c.deletions
-			FROM commits c
-			JOIN edges e ON e.from_node = 'commit:' || c.sha
-			WHERE e.to_node LIKE ? AND e.type = 'MODIFIES'
-			ORDER BY c.timestamp DESC
-			LIMIT ?
-		`, nodePattern+"%", limit)
-	} else {
-		rows, err = s.db.Query(`
-			SELECT DISTINCT c.sha, c.message, c.author_email, c.timestamp, c.additions, c.deletions
-			FROM commits c
-			JOIN edges e ON e.from_node = 'commit:' || c.sha
-			WHERE e.to_node = ? AND e.type = 'MODIFIES'
-			ORDER BY c.timestamp DESC
-			LIMIT ?
-		`, nodePattern, limit)
-	}
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var commits []Commit
-	for rows.Next() {
-		var c Commit
-		if err := rows.Scan(&c.SHA, &c.Message, &c.AuthorEmail, &c.Timestamp, &c.Additions, &c.Deletions); err != nil {
-			return nil, err
-		}
-		commits = append(commits, c)
-	}
-	return commits, rows.Err()
-}
-
-// QueryFilesModifiedByCommit returns the file paths modified by a given commit SHA.
-func (s *Store) QueryFilesModifiedByCommit(sha string) ([]string, error) {
-	rows, err := s.db.Query(`
-		SELECT to_node FROM edges
-		WHERE from_node = ? AND type = 'MODIFIES'
-	`, "commit:"+sha)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var files []string
-	for rows.Next() {
-		var nodeRef string
-		if err := rows.Scan(&nodeRef); err != nil {
-			return nil, err
-		}
-		files = append(files, strings.TrimPrefix(nodeRef, "file:"))
-	}
-	return files, rows.Err()
-}
-
-// QueryCommitsByFile returns commits that modified the given file path, ordered by timestamp descending.
-func (s *Store) QueryCommitsByFile(filePath string, limit int) ([]Commit, error) {
-	rows, err := s.db.Query(`
-		SELECT c.sha, c.message, c.author_email, c.timestamp, c.additions, c.deletions
-		FROM commits c
-		JOIN edges e ON e.from_node = 'commit:' || c.sha
-		WHERE e.to_node = ? AND e.type = 'MODIFIES'
-		ORDER BY c.timestamp DESC
-		LIMIT ?
-	`, "file:"+filePath, limit)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var commits []Commit
-	for rows.Next() {
-		var c Commit
-		if err := rows.Scan(&c.SHA, &c.Message, &c.AuthorEmail, &c.Timestamp, &c.Additions, &c.Deletions); err != nil {
-			return nil, err
-		}
-		commits = append(commits, c)
-	}
-	return commits, rows.Err()
-}
-
-// QueryCommitBySHA returns a single commit by SHA.
-func (s *Store) QueryCommitBySHA(sha string) (*Commit, error) {
-	var c Commit
-	err := s.db.QueryRow(
-		"SELECT sha, message, author_email, timestamp, additions, deletions FROM commits WHERE sha = ?",
-		sha,
-	).Scan(&c.SHA, &c.Message, &c.AuthorEmail, &c.Timestamp, &c.Additions, &c.Deletions)
-	if err == sql.ErrNoRows {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-	return &c, nil
-}
-
-// CommitCount returns the number of stored commits.
-func (s *Store) CommitCount() (int, error) {
-	var count int
-	err := s.db.QueryRow("SELECT COUNT(*) FROM commits").Scan(&count)
-	return count, err
-}
-
-// AuthorCount returns the number of stored authors.
-func (s *Store) AuthorCount() (int, error) {
-	var count int
-	err := s.db.QueryRow("SELECT COUNT(*) FROM authors").Scan(&count)
-	return count, err
-}
-
-// DeleteHistory removes all commits, authors, and history-related edges.
-func (s *Store) DeleteHistory() error {
-	tx, err := s.db.Begin()
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-	_, err = tx.Exec(`DELETE FROM commits`)
-	if err != nil {
-		return err
-	}
-	_, err = tx.Exec(`DELETE FROM authors`)
-	if err != nil {
-		return err
-	}
-	_, err = tx.Exec(`DELETE FROM edges WHERE type IN ('MODIFIES', 'AUTHORED_BY', 'CO_CHANGED')`)
-	if err != nil {
-		return err
-	}
-	return tx.Commit()
 }
 
 // CoChangedCount returns the number of CO_CHANGED edges.

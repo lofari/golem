@@ -24,22 +24,6 @@ type Stats struct {
 	EdgeTypes  map[string]int `json:"edgeTypes"`
 }
 
-// Commit represents a git commit.
-type Commit struct {
-	SHA         string `json:"sha"`
-	Message     string `json:"message"`
-	AuthorEmail string `json:"authorEmail"`
-	Timestamp   int64  `json:"timestamp"`
-	Additions   int    `json:"additions"`
-	Deletions   int    `json:"deletions"`
-}
-
-// Author represents a git author.
-type Author struct {
-	Email string `json:"email"`
-	Name  string `json:"name"`
-}
-
 // CoChangedResult represents a file that co-changed with another file.
 type CoChangedResult struct {
 	File  string `json:"file"`

@@ -3,6 +3,7 @@ package context
 import (
 	gocontext "context"
 	"fmt"
+	"os/exec"
 	"sort"
 	"strings"
 
@@ -233,18 +234,25 @@ func coChangeBoost(store *graph.Store, candidates []candidate) []candidate {
 }
 
 // recencyBoost boosts candidates whose files were modified in recent commits.
+// Uses git directly rather than stored commit data.
 func recencyBoost(store *graph.Store, candidates []candidate, recentN int) []candidate {
+	// Get project dir from store metadata (last_commit implies git repo)
+	projectDir, _ := store.GetMeta("project_dir")
+	if projectDir == "" {
+		return candidates
+	}
+
 	for i, c := range candidates {
 		if c.Node.Path == "" {
 			continue
 		}
-		commits, err := store.QueryCommitsByFile(c.Node.Path, recentN)
-		if err != nil || len(commits) == 0 {
+		cmd := exec.Command("git", "log", "--format=%H", "--since=7d", "-n", "1", "--", c.Node.Path)
+		cmd.Dir = projectDir
+		out, err := cmd.Output()
+		if err != nil || len(strings.TrimSpace(string(out))) == 0 {
 			continue
 		}
-		// Boost decays by position: most recent commit = full boost
-		boost := recencyBoostMax * (1.0 - float64(0)/float64(recentN))
-		candidates[i].Score += boost
+		candidates[i].Score += recencyBoostMax
 	}
 
 	return candidates

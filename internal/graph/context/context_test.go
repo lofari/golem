@@ -128,14 +128,6 @@ func TestBuildContextMap_FullPipeline(t *testing.T) {
 	// Add co-change
 	store.InsertEdgeWithWeight("file:auth/login.go", "file:auth/crypto.go", "CO_CHANGED", 5)
 
-	// Add recent commit
-	store.InsertCommitBatch([]graph.Commit{
-		{SHA: "abc123", Message: "fix login", AuthorEmail: "dev@test.com", Timestamp: 9999999999, Additions: 10, Deletions: 5},
-	})
-	store.InsertBatch(nil, []graph.Edge{
-		{From: "commit:abc123", To: "file:auth/login.go", Type: "MODIFIES"},
-	})
-
 	cm, err := BuildContextMap(store, embedder, "fix login validation", 15)
 	if err != nil {
 		t.Fatal(err)
@@ -288,25 +280,14 @@ func TestCoChangeBoost(t *testing.T) {
 func TestRecencyBoost(t *testing.T) {
 	store := setupTestStore(t)
 
-	// Insert a file node and a recent commit that modifies it
-	nodes := []graph.Node{
-		{ID: "file:a.go", Type: "file", Name: "a.go", Path: "a.go", Line: 0},
-	}
-	store.InsertBatch(nodes, nil)
-	store.InsertCommitBatch([]graph.Commit{
-		{SHA: "abc123", Message: "fix a.go", AuthorEmail: "dev@test.com", Timestamp: 9999999999, Additions: 10, Deletions: 5},
-	})
-	store.InsertBatch(nil, []graph.Edge{
-		{From: "commit:abc123", To: "file:a.go", Type: "MODIFIES"},
-	})
-
 	candidates := []candidate{
 		{Node: graph.Node{ID: "func:a.go:Foo", Type: "function", Name: "Foo", Path: "a.go", Line: 10}, Score: 0.5},
 	}
 
+	// Without project_dir metadata, recencyBoost should be a no-op
 	boosted := recencyBoost(store, candidates, 10)
-	if boosted[0].Score <= 0.5 {
-		t.Errorf("expected recency boost, got %f", boosted[0].Score)
+	if boosted[0].Score != 0.5 {
+		t.Errorf("expected no boost without project_dir, got %f", boosted[0].Score)
 	}
 }
 
