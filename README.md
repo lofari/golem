@@ -23,11 +23,31 @@ The agent reads all four at the start of every iteration and updates state/log a
 
 ## Install
 
+### Prebuilt binaries
+
+Download the latest release from [GitHub Releases](https://github.com/lofari/golem/releases):
+
+```bash
+# Linux (amd64)
+curl -fsSL https://github.com/lofari/golem/releases/latest/download/golem-linux-amd64 -o golem
+chmod +x golem
+sudo mv golem /usr/local/bin/
+
+# macOS (Apple Silicon)
+curl -fsSL https://github.com/lofari/golem/releases/latest/download/golem-darwin-arm64 -o golem
+chmod +x golem
+sudo mv golem /usr/local/bin/
+```
+
+### From source
+
+With Go 1.25+:
+
 ```bash
 go install github.com/lofari/golem@latest
 ```
 
-Or build from source:
+Or clone and build:
 
 ```bash
 git clone https://github.com/lofari/golem.git
@@ -35,7 +55,9 @@ cd golem
 go build -o golem .
 ```
 
-Requires [Claude Code](https://docs.anthropic.com/en/docs/claude-code) (`claude` CLI) on your PATH.
+### Prerequisites
+
+- [Claude Code](https://docs.anthropic.com/en/docs/claude-code) (`claude` CLI) on your PATH
 
 ## Quick Start
 
