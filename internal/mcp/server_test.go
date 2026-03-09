@@ -5,7 +5,7 @@ import (
 )
 
 func TestNewServer(t *testing.T) {
-	s := NewServer(t.TempDir())
+	s := NewServer(t.TempDir(), nil)
 	if s == nil {
 		t.Fatal("NewServer returned nil")
 	}

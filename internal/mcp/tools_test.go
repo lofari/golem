@@ -30,7 +30,7 @@ func setupTestDir(t *testing.T) string {
 
 func TestHandleMarkTask(t *testing.T) {
 	dir := setupTestDir(t)
-	gs := NewServer(dir)
+	gs := NewServer(dir, nil)
 
 	result, err := gs.handleMarkTask(context.Background(), mcp.CallToolRequest{
 		Params: mcp.CallToolParams{
@@ -60,7 +60,7 @@ func TestHandleMarkTask(t *testing.T) {
 
 func TestHandleMarkTask_InvalidStatus(t *testing.T) {
 	dir := setupTestDir(t)
-	gs := NewServer(dir)
+	gs := NewServer(dir, nil)
 
 	result, err := gs.handleMarkTask(context.Background(), mcp.CallToolRequest{
 		Params: mcp.CallToolParams{
@@ -80,7 +80,7 @@ func TestHandleMarkTask_InvalidStatus(t *testing.T) {
 
 func TestHandleMarkTask_BlockedRequiresReason(t *testing.T) {
 	dir := setupTestDir(t)
-	gs := NewServer(dir)
+	gs := NewServer(dir, nil)
 
 	result, _ := gs.handleMarkTask(context.Background(), mcp.CallToolRequest{
 		Params: mcp.CallToolParams{
@@ -97,7 +97,7 @@ func TestHandleMarkTask_BlockedRequiresReason(t *testing.T) {
 
 func TestHandleSetPhase(t *testing.T) {
 	dir := setupTestDir(t)
-	gs := NewServer(dir)
+	gs := NewServer(dir, nil)
 
 	result, err := gs.handleSetPhase(context.Background(), mcp.CallToolRequest{
 		Params: mcp.CallToolParams{
@@ -121,7 +121,7 @@ func TestHandleSetPhase(t *testing.T) {
 
 func TestHandleSetPhase_Invalid(t *testing.T) {
 	dir := setupTestDir(t)
-	gs := NewServer(dir)
+	gs := NewServer(dir, nil)
 
 	result, _ := gs.handleSetPhase(context.Background(), mcp.CallToolRequest{
 		Params: mcp.CallToolParams{
@@ -137,7 +137,7 @@ func TestHandleSetPhase_Invalid(t *testing.T) {
 
 func TestHandleLogSession(t *testing.T) {
 	dir := setupTestDir(t)
-	gs := NewServer(dir)
+	gs := NewServer(dir, nil)
 
 	result, err := gs.handleLogSession(context.Background(), mcp.CallToolRequest{
 		Params: mcp.CallToolParams{
@@ -167,7 +167,7 @@ func TestHandleLogSession(t *testing.T) {
 
 func TestHandleLogSession_WithHandoff(t *testing.T) {
 	dir := setupTestDir(t)
-	gs := NewServer(dir)
+	gs := NewServer(dir, nil)
 
 	result, err := gs.handleLogSession(context.Background(), mcp.CallToolRequest{
 		Params: mcp.CallToolParams{

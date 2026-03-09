@@ -22,7 +22,7 @@ var mcpServeCmd = &cobra.Command{
 			}
 		}
 
-		s := golemmcp.NewServer(dir)
+		s := golemmcp.NewServer(dir, nil)
 		fmt.Fprintln(os.Stderr, "golem: MCP server starting on stdio")
 		return s.ServeStdio()
 	},
