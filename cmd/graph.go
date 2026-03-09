@@ -1,14 +1,15 @@
 package cmd
 
 import (
+	"bufio"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
-	"strings"
-
 	"github.com/spf13/cobra"
+	"golang.org/x/term"
 
 	"github.com/lofari/golem/internal/graph"
 	"github.com/lofari/golem/internal/graph/embed"
@@ -50,8 +51,18 @@ var graphBuildCmd = &cobra.Command{
 			files := collectMCPFileExtensions(dir)
 			detected := lsp.DetectLanguages(files)
 			available, missing := lsp.CheckAvailability(detected)
-			for _, m := range missing {
-				fmt.Fprintf(os.Stderr, "golem: %s not found. Install: %s\n", m.Binary, m.InstallHint)
+			if len(missing) > 0 {
+				for _, m := range missing {
+					fmt.Fprintf(os.Stderr, "golem: %s not found. Install: %s\n", m.Binary, m.InstallHint)
+				}
+				if term.IsTerminal(int(os.Stdin.Fd())) {
+					fmt.Fprintf(os.Stderr, "\ngolem: install the above and press Enter to retry (or press Enter to continue without LSP): ")
+					bufio.NewReader(os.Stdin).ReadBytes('\n')
+					available, missing = lsp.CheckAvailability(detected)
+					for _, m := range missing {
+						fmt.Fprintf(os.Stderr, "golem: still missing: %s\n", m.Binary)
+					}
+				}
 			}
 			if len(available) > 0 {
 				lspMgr = lsp.NewManager(dir)
