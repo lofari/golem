@@ -45,7 +45,7 @@ var codeCmd = &cobra.Command{
 			ExecutionHistory: rc.ExecutionHistory,
 			ContextMap:       rc.ContextMap,
 			ContextMapLimit:  rc.ContextMapLimit,
-			LSPEnabled:       !noLSP,
+			LSPEnabled:       rc.LSP && !noLSP,
 			Runner:           claudeRunner,
 		})
 		if err != nil {

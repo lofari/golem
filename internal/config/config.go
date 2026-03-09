@@ -27,6 +27,7 @@ type Config struct {
 	ExecutionHistory int      `yaml:"execution-history" json:"execution-history"`
 	ContextMap       bool     `yaml:"context-map" json:"context-map"`
 	ContextMapLimit  int      `yaml:"context-map-limit" json:"context-map-limit"`
+	LSP              bool     `yaml:"lsp" json:"lsp"`
 }
 
 // Defaults returns a Config with built-in default values.
@@ -39,6 +40,7 @@ func Defaults() Config {
 		ExecutionHistory: 5,
 		ContextMap:       true,
 		ContextMapLimit:  15,
+		LSP:             true,
 	}
 }
 
@@ -93,6 +95,7 @@ type configLayer struct {
 	ExecutionHistory *int    `yaml:"execution-history"`
 	ContextMap       *bool   `yaml:"context-map"`
 	ContextMapLimit  *int    `yaml:"context-map-limit"`
+	LSP              *bool   `yaml:"lsp"`
 }
 
 func readFile(path string) (configLayer, error) {
@@ -147,6 +150,9 @@ func merge(base Config, layer configLayer) Config {
 	}
 	if layer.ContextMapLimit != nil {
 		base.ContextMapLimit = *layer.ContextMapLimit
+	}
+	if layer.LSP != nil {
+		base.LSP = *layer.LSP
 	}
 	return base
 }
@@ -214,6 +220,8 @@ func GetValue(cfg Config, key string) (string, error) {
 		return strconv.FormatBool(cfg.ContextMap), nil
 	case "context-map-limit":
 		return strconv.Itoa(cfg.ContextMapLimit), nil
+	case "lsp":
+		return strconv.FormatBool(cfg.LSP), nil
 	default:
 		return "", fmt.Errorf("unknown config key: %q", key)
 	}
@@ -247,6 +255,7 @@ func PrintConfig(w io.Writer, cfg Config) {
 	fmt.Fprintf(w, "execution-history: %d\n", cfg.ExecutionHistory)
 	fmt.Fprintf(w, "context-map: %v\n", cfg.ContextMap)
 	fmt.Fprintf(w, "context-map-limit: %d\n", cfg.ContextMapLimit)
+	fmt.Fprintf(w, "lsp: %v\n", cfg.LSP)
 }
 
 // KeyInfo describes a config key for the interactive wizard.
@@ -272,6 +281,7 @@ func Keys() []KeyInfo {
 		{"execution-history", "number of execution sessions to retain (default 5)"},
 		{"context-map", "enable context map injection (true/false)"},
 		{"context-map-limit", "max symbols in context map (default 15)"},
+		{"lsp", "enable LSP servers for code intelligence (true/false)"},
 	}
 }
 

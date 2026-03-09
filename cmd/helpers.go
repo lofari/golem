@@ -79,6 +79,12 @@ func resolveConfig(cmd *cobra.Command, dir string) resolvedConfig {
 			cfg.ContextMap = false
 		}
 	}
+	if cmd.Flags().Changed("no-lsp") {
+		noLSP, _ := cmd.Flags().GetBool("no-lsp")
+		if noLSP {
+			cfg.LSP = false
+		}
+	}
 
 	rc := resolvedConfig{Config: cfg}
 	rc.Task, _ = cmd.Flags().GetString("task")
