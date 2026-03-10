@@ -5,6 +5,7 @@
             [golem.dsl.engine.snapshot :as snapshot]
             [golem.dsl.engine.context :as context]
             [golem.dsl.engine.output :as output]
+            [golem.dsl.engine.events :as events]
             [golem.dsl.errors.types :as error-types]
             [golem.dsl.errors.handler :as error-handler]
             [golem.dsl.errors.diagnostic :as diagnostic]
@@ -117,15 +118,23 @@
     (loop [node-idx 0
            current-state initial-state
            version 0
-           attempts {}]
+           attempts {}
+           step-count 0]
       (if (or (nil? node-idx) (>= node-idx (count nodes)))
         ;; Done
-        {:state current-state
-         :version version
-         :run-id run-id
-         :status :completed}
+        (do
+          (events/emit! :agent-done {:agent (name agent-name)
+                                     :outcome "complete"
+                                     :total-steps step-count})
+          {:state current-state
+           :version version
+           :run-id run-id
+           :status :completed})
 
         (let [node (nth nodes node-idx)
+              _ (events/emit! :step-start {:step (name (:primitive node))
+                                           :iteration (inc step-count)
+                                           :agent (name agent-name)})
               result (execute-node node current-state adapter working-dir)]
           (if (:ok result)
             ;; Success: apply writes, snapshot, advance
@@ -141,8 +150,10 @@
                                   :primitive (:primitive node)
                                   :version new-version
                                   :status :ok})
+              (events/emit! :step-end {:step (name (:primitive node))
+                                       :state-version new-version})
               (let [next-idx (find-next-node node-idx nodes edges new-state)]
-                (recur next-idx new-state new-version {})))
+                (recur next-idx new-state new-version {} (inc step-count))))
 
             ;; Error: classify, handle
             (let [node-key (:id node)
@@ -155,10 +166,17 @@
                                            :decision decision})
               (if (= :retry (:action decision))
                 (recur node-idx current-state version
-                       (update attempts node-key (fnil inc 0)))
+                       (update attempts node-key (fnil inc 0))
+                       step-count)
                 ;; Halt
                 (do
+                  (events/emit! :error {:step (name (:primitive node))
+                                        :error-type (name (or (:error-type decision) :unknown))
+                                        :iteration (inc step-count)})
                   (snapshot/save-state! base-dir run-id (inc version) current-state)
+                  (events/emit! :agent-done {:agent (name agent-name)
+                                             :outcome "halted"
+                                             :total-steps (inc step-count)})
                   {:state current-state
                    :version (inc version)
                    :run-id run-id
