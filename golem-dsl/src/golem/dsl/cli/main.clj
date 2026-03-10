@@ -1,39 +1,87 @@
 (ns golem.dsl.cli.main
   "CLI entry point for golem-dsl."
   (:require [golem.dsl.engine.core :as engine]
+            [golem.dsl.engine.events :as events]
             [golem.dsl.engine.snapshot :as snapshot]
             [golem.dsl.session.claude :as claude]
             [golem.dsl.registry :as registry]
+            [golem.dsl.resolve :as resolve]
             [clojure.edn :as edn]
-            [clojure.java.io :as io]))
+            [clojure.java.io :as io]
+            [clojure.string :as str]))
 
 (defn- load-agent-file [path]
   (load-file path))
 
-(defn- parse-state-arg [args]
-  (cond
-    (some #(= "--goal" %) args)
-    (let [idx (.indexOf (vec args) "--goal")]
-      {:goal (nth args (inc idx))})
+(defn parse-args
+  "Parse CLI arguments into a structured map."
+  [args]
+  (let [cmd (first args)]
+    (case cmd
+      "run"
+      (let [agent-name (second args)
+            rest-args (drop 2 args)]
+        (loop [remaining (seq rest-args)
+               result {:command :run
+                       :agent agent-name
+                       :goal nil
+                       :state-dir "."
+                       :state-file nil
+                       :opts {}
+                       :dry-run false}]
+          (if-not remaining
+            result
+            (let [flag (first remaining)]
+              (case flag
+                "--goal"      (recur (nnext remaining) (assoc result :goal (second remaining)))
+                "--state-dir" (recur (nnext remaining) (assoc result :state-dir (second remaining)))
+                "--state"     (recur (nnext remaining) (assoc result :state-file (second remaining)))
+                "--opt"       (let [opt-str (second remaining)
+                                   [k v] (str/split opt-str #"=" 2)]
+                               (recur (nnext remaining) (update result :opts assoc k v)))
+                "--dry-run"   (recur (next remaining) (assoc result :dry-run true))
+                ;; skip unknown flags
+                (recur (next remaining) result))))))
 
-    (some #(= "--state" %) args)
-    (let [idx (.indexOf (vec args) "--state")]
-      (edn/read-string (slurp (nth args (inc idx)))))
+      "list"    {:command :list}
+      "compile" {:command :compile :args (rest args)}
+      "inspect" {:command :inspect :args (rest args)}
+      "runs"    {:command :runs}
+      {:command :help})))
 
-    :else {}))
+(defn- cmd-run-parsed [{:keys [agent goal state-dir state-file opts dry-run]}]
+  (let [agent-path (resolve/resolve-agent agent (str state-dir "/.ctx/agents"))]
+    (when-not agent-path
+      (binding [*out* *err*]
+        (println (str "Unknown agent: " agent)))
+      (System/exit 1))
 
-(defn cmd-run [args]
-  (let [agent-file (first args)
-        _ (load-agent-file agent-file)
-        agent-name (keyword (second args))
-        initial-state (parse-state-arg (drop 2 args))
-        adapter (claude/make-adapter {:golem-binary "golem"})
-        result (engine/run agent-name initial-state
-                          {:adapter adapter
-                           :base-dir "."})]
-    (println "Run complete:" (:run-id result))
-    (println "Final status:" (:status result))
-    (println "State version:" (:version result))))
+    (load-agent-file agent-path)
+
+    (let [agent-key (keyword agent)
+          initial-state (cond
+                          goal {:goal goal}
+                          state-file (edn/read-string (slurp state-file))
+                          :else {})]
+      (when dry-run
+        (events/emit! :step-start {:step "dry-run" :iteration 0 :agent agent})
+        (events/emit! :agent-done {:agent agent :outcome "dry-run" :total-steps 0})
+        (System/exit 0))
+
+      (let [adapter (claude/make-adapter {:golem-binary "golem"})
+            result (engine/run agent-key initial-state
+                              {:adapter adapter
+                               :base-dir state-dir
+                               :state-dir state-dir
+                               :working-dir state-dir})]
+        (binding [*out* *err*]
+          (println "Run complete:" (:run-id result))
+          (println "Final status:" (:status result))
+          (println "State version:" (:version result)))))))
+
+(defn- cmd-list []
+  (doseq [a (resolve/list-agents nil)]
+    (println (format "%-20s %s [%s]" (:name a) (:desc a) (name (:source a))))))
 
 (defn cmd-compile [args]
   (let [agent-file (first args)]
@@ -72,12 +120,15 @@
       (println "No runs found."))))
 
 (defn -main [& args]
-  (let [cmd (first args)
-        rest-args (rest args)]
-    (case cmd
-      "run"     (cmd-run rest-args)
-      "compile" (cmd-compile rest-args)
-      "inspect" (cmd-inspect rest-args)
-      "runs"    (cmd-runs rest-args)
-      (do (println "Usage: golem-dsl <command> [args]")
-          (println "Commands: run, compile, inspect, runs")))))
+  (let [parsed (parse-args args)]
+    (case (:command parsed)
+      :run     (cmd-run-parsed parsed)
+      :list    (cmd-list)
+      :compile (cmd-compile (:args parsed))
+      :inspect (cmd-inspect (:args parsed))
+      :runs    (cmd-runs nil)
+      :help    (do (println "Usage: golem-dsl <command> [args]")
+                   (println "Commands: run, list, compile, inspect, runs")
+                   (println)
+                   (println "run <agent> --goal <goal> --state-dir <dir> [--opt key=val] [--dry-run]")
+                   (println "list                List available agents")))))
