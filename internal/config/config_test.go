@@ -88,6 +88,47 @@ func TestDefaults_ContextMap(t *testing.T) {
 	}
 }
 
+func TestDefaults_Engine(t *testing.T) {
+	cfg := Defaults()
+	if cfg.Engine != "go" {
+		t.Fatalf("expected engine=go, got %s", cfg.Engine)
+	}
+	if cfg.DSLCommand != "golem-dsl" {
+		t.Fatalf("expected dsl_command=golem-dsl, got %s", cfg.DSLCommand)
+	}
+}
+
+func TestLoad_EngineFromYAML(t *testing.T) {
+	dir := t.TempDir()
+	f := filepath.Join(dir, "config.yaml")
+	os.WriteFile(f, []byte("engine: dsl\ndsl-command: clj -M:run\n"), 0644)
+	cfg := Load("", f)
+	if cfg.Engine != "dsl" {
+		t.Fatalf("expected engine=dsl, got %s", cfg.Engine)
+	}
+	if cfg.DSLCommand != "clj -M:run" {
+		t.Fatalf("expected dsl-command='clj -M:run', got %s", cfg.DSLCommand)
+	}
+}
+
+func TestGetValue_Engine(t *testing.T) {
+	cfg := Defaults()
+	v, err := GetValue(cfg, "engine")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v != "go" {
+		t.Errorf("expected 'go', got %q", v)
+	}
+	v, err = GetValue(cfg, "dsl-command")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v != "golem-dsl" {
+		t.Errorf("expected 'golem-dsl', got %q", v)
+	}
+}
+
 func TestGetValue_ContextMap(t *testing.T) {
 	cfg := Defaults()
 	v, err := GetValue(cfg, "context-map")
