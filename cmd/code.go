@@ -29,6 +29,29 @@ var codeCmd = &cobra.Command{
 		defer stop()
 
 		rc := resolveConfig(cmd, dir)
+
+		if shouldUseDSL(rc.Engine) {
+			dsl := &runner.DSLRunner{
+				DSLCommand: rc.DSLCommand,
+				Agent:      rc.Agent,
+				Goal:       rc.Task,
+				StateDir:   dir,
+				AgentOpts:  rc.AgentOpts,
+				MaxIter:    rc.MaxIterations,
+			}
+			if err := dsl.CheckBinary(); err != nil {
+				return err
+			}
+			result, err := dsl.Run(ctx)
+			if err != nil {
+				return err
+			}
+			if result.Halted {
+				return fmt.Errorf("agent halted: %s", result.HaltReason)
+			}
+			return nil
+		}
+
 		claudeRunner := newClaudeRunner(rc)
 
 		noLSP, _ := cmd.Flags().GetBool("no-lsp")
@@ -64,6 +87,10 @@ var codeCmd = &cobra.Command{
 
 		return nil
 	},
+}
+
+func shouldUseDSL(engine string) bool {
+	return engine == "dsl"
 }
 
 func init() {
