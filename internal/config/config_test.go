@@ -111,6 +111,37 @@ func TestLoad_EngineFromYAML(t *testing.T) {
 	}
 }
 
+func TestDefaults_Agent(t *testing.T) {
+	cfg := Defaults()
+	if cfg.Agent != "build-feature" {
+		t.Fatalf("expected agent=build-feature, got %s", cfg.Agent)
+	}
+}
+
+func TestLoad_AgentOptsFromYAML(t *testing.T) {
+	dir := t.TempDir()
+	f := filepath.Join(dir, "config.yaml")
+	os.WriteFile(f, []byte("agent: fix-bug\nagent-opts:\n  max_iterations: 3\n"), 0644)
+	cfg := Load("", f)
+	if cfg.Agent != "fix-bug" {
+		t.Fatalf("expected agent=fix-bug, got %s", cfg.Agent)
+	}
+	if cfg.AgentOpts["max_iterations"] != 3 {
+		t.Fatalf("expected max_iterations=3, got %v", cfg.AgentOpts["max_iterations"])
+	}
+}
+
+func TestGetValue_Agent(t *testing.T) {
+	cfg := Defaults()
+	v, err := GetValue(cfg, "agent")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v != "build-feature" {
+		t.Errorf("expected 'build-feature', got %q", v)
+	}
+}
+
 func TestGetValue_Engine(t *testing.T) {
 	cfg := Defaults()
 	v, err := GetValue(cfg, "engine")
