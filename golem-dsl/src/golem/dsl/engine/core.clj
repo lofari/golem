@@ -6,6 +6,7 @@
             [golem.dsl.engine.context :as context]
             [golem.dsl.engine.output :as output]
             [golem.dsl.engine.events :as events]
+            [golem.dsl.sync :as sync]
             [golem.dsl.errors.types :as error-types]
             [golem.dsl.errors.handler :as error-handler]
             [golem.dsl.errors.diagnostic :as diagnostic]
@@ -152,6 +153,11 @@
                                   :status :ok})
               (events/emit! :step-end {:step (name (:primitive node))
                                        :state-version new-version})
+              ;; Sync state to .ctx/state.yaml if state-dir provided
+              (when-let [state-dir (:state-dir opts)]
+                (sync/write-state-yaml!
+                 (str state-dir "/.ctx/state.yaml")
+                 new-state (name agent-name) (name (:primitive node))))
               (let [next-idx (find-next-node node-idx nodes edges new-state)]
                 (recur next-idx new-state new-version {} (inc step-count))))
 
