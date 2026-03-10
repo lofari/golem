@@ -14,7 +14,7 @@ import (
 
 var codeCmd = &cobra.Command{
 	Use:     "code",
-	Aliases: []string{"run"},
+	Aliases: []string{"build"},
 	Short:   "Run the autonomous builder loop",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		dir, err := os.Getwd()
