@@ -37,7 +37,6 @@ func PrintStatus(w io.Writer, state ctx.State, logEntries int) {
 	fmt.Fprintln(w)
 	fmt.Fprintf(w, "Decisions: %d recorded\n", len(state.Decisions))
 	fmt.Fprintf(w, "Pitfalls: %d noted\n", len(state.Pitfalls))
-	fmt.Fprintf(w, "Locked paths: %d\n", len(state.Locked))
 	fmt.Fprintf(w, "Sessions: %d logged\n", logEntries)
 }
 

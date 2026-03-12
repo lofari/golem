@@ -27,7 +27,7 @@ func NewServer(dir string, lspManager *lsp.Manager) *GolemServer {
 
 // ListTools returns the names of all registered tools.
 func (gs *GolemServer) ListTools() []string {
-	tools := []string{"mark_task", "set_phase", "set_status", "add_decision", "add_pitfall", "add_locked", "log_session", "find_callers", "find_dependencies", "find_dependents", "graph_query", "semantic_search", "find_co_changed", "find_execution_failures", "get_runtime_trace", "find_test_results"}
+	tools := []string{"mark_task", "set_phase", "set_status", "add_decision", "add_pitfall", "log_session", "find_callers", "find_dependencies", "find_dependents", "graph_query", "semantic_search", "find_co_changed", "find_execution_failures", "get_runtime_trace", "find_test_results"}
 	if gs.lspManager != nil {
 		tools = append(tools, "lsp_definition", "lsp_references", "lsp_hover", "lsp_diagnostics")
 	}
@@ -45,7 +45,6 @@ func (gs *GolemServer) registerTools() {
 	gs.mcpServer.AddTool(setStatusTool(), gs.handleSetStatus)
 	gs.mcpServer.AddTool(addDecisionTool(), gs.handleAddDecision)
 	gs.mcpServer.AddTool(addPitfallTool(), gs.handleAddPitfall)
-	gs.mcpServer.AddTool(addLockedTool(), gs.handleAddLocked)
 	gs.mcpServer.AddTool(logSessionTool(), gs.handleLogSession)
 	gs.mcpServer.AddTool(findCallersTool(), gs.handleFindCallers)
 	gs.mcpServer.AddTool(findDependenciesTool(), gs.handleFindDependencies)

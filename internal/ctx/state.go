@@ -14,7 +14,6 @@ type State struct {
 	Project   Project    `yaml:"project" json:"project"`
 	Status    Status     `yaml:"status" json:"status"`
 	Decisions []Decision `yaml:"decisions" json:"decisions"`
-	Locked    []Lock     `yaml:"locked" json:"locked"`
 	Tasks     []Task     `yaml:"tasks" json:"tasks"`
 	Pitfalls  []Pitfall  `yaml:"pitfalls" json:"pitfalls"`
 }
@@ -74,28 +73,6 @@ type Decision struct {
 	What string `yaml:"what" json:"what"`
 	Why  string `yaml:"why" json:"why"`
 	When string `yaml:"when" json:"when"`
-}
-
-type Lock struct {
-	Path string `yaml:"path" json:"path"`
-	Note string `yaml:"note" json:"note,omitempty"`
-}
-
-func (l *Lock) UnmarshalYAML(unmarshal func(interface{}) error) error {
-	// Try plain string first (e.g. "- src/foo.go")
-	var s string
-	if err := unmarshal(&s); err == nil {
-		l.Path = s
-		return nil
-	}
-	// Try structured object (e.g. "- path: src/foo.go\n  note: complete")
-	type lockObj Lock
-	var obj lockObj
-	if err := unmarshal(&obj); err != nil {
-		return err
-	}
-	*l = Lock(obj)
-	return nil
 }
 
 type Task struct {

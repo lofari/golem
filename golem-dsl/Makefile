@@ -21,5 +21,11 @@ target/golem-dsl: $(shell find src -name '*.clj') deps.edn
 		-jar target/golem-dsl.jar \
 		-o target/golem-dsl
 
+install-dev:
+	mkdir -p $(HOME)/bin
+	ln -sf $(CURDIR)/golem-dsl $(HOME)/bin/golem-dsl
+	@echo "Installed golem-dsl wrapper to ~/bin/golem-dsl"
+	@echo "Ensure ~/bin is in your PATH"
+
 clean:
 	rm -rf target .cpcache

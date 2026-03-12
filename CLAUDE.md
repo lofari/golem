@@ -22,7 +22,7 @@ internal/
   config/      Two-layer config system (global + project)
   display/     Plain-text formatters
   scaffold/    golem init scaffolding
-  git/         Git helpers (changed files, locked path checks)
+  git/         Git helpers (changed files, diff summaries)
 templates/     Embedded templates: prompt.md, review-prompt.md, qa-prompt.md, state.yaml, log.yaml, claude.md
 ```
 

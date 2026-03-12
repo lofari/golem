@@ -15,7 +15,7 @@ Running an AI agent in a loop without structure leads to:
 
 golem solves this with four information layers:
 1. **Design docs** — Static intent (user-written plans and specs)
-2. **State** (`.ctx/state.yaml`) — Live progress: tasks, decisions, locked paths, pitfalls
+2. **State** (`.ctx/state.yaml`) — Live progress: tasks, decisions, pitfalls
 3. **Log** (`.ctx/log.yaml`) — Append-only session history
 4. **Knowledge graph** (`.ctx/graph.db`) — Code structure, embeddings, git history, and execution traces
 
@@ -85,6 +85,10 @@ golem qa
 
 # Check status anytime
 golem status
+
+# Or use DSL agents directly
+golem run build-feature --goal "add user auth"
+golem agents
 ```
 
 ### Desktop UI
@@ -190,7 +194,9 @@ golem plan --model opus
 
 ### `golem code`
 
-The core loop. Spawns autonomous Claude Code iterations until all tasks are done or limits are reached. Also available as `golem run` (alias).
+The core loop. Spawns autonomous Claude Code iterations until all tasks are done or limits are reached. Also available as `golem build` (alias).
+
+When `engine: dsl` is set in config, `golem code` delegates to the DSL execution engine instead of the Go builder loop (see [DSL Agents](#dsl-agents) below).
 
 ```bash
 golem code
@@ -212,6 +218,7 @@ golem code --review
 | `--mcp` | `true` | Enable golem MCP server for structured state updates |
 | `--parallel` | `1` | Max parallel task sessions (1 = sequential) |
 | `--no-context-map` | `false` | Disable knowledge graph context injection |
+| `--no-lsp` | `false` | Disable LSP servers (use tree-sitter only) |
 
 Each iteration:
 1. Reads state and remaining tasks
@@ -220,7 +227,7 @@ Each iteration:
 4. Spawns `claude -p` with the rendered prompt (and MCP server if enabled)
 5. Checks for `<promise>COMPLETE</promise>` in output
 6. Evaluates strategy rules (failure, deadlock, thrashing, progress)
-7. Validates post-iteration (schema, locked paths, regressions)
+7. Validates post-iteration (schema, task regressions)
 8. Prints summary and continues
 
 ### `golem review`
@@ -278,7 +285,6 @@ Tasks:
 
 Decisions: 4 recorded
 Pitfalls: 3 noted
-Locked paths: 2
 Sessions: 7 logged
 ```
 
@@ -293,12 +299,63 @@ golem config get max-tool-calls              # show resolved value
 golem config list                       # show all resolved values
 ```
 
+### `golem run`
+
+Run a DSL-defined agent. This is the primary command for the Clojure DSL orchestration engine.
+
+```bash
+golem run build-feature --goal "add user authentication"
+golem run fix-bug --goal "fix login timeout"
+```
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--goal` | `""` | Goal description for the agent (required) |
+
+The agent name can be a built-in agent or a project-local agent from `.ctx/agents/`.
+
+### `golem agents`
+
+Lists all available DSL agents (built-in and project-local).
+
+```bash
+golem agents
+```
+
+```
+Built-in agents:
+  build-feature        Plan → implement → review loop
+  fix-bug              Research → fix → test loop
+  write-docs           Documentation generator
+  review               Single-pass code review
+
+Project agents:
+  my-custom-flow       .ctx/agents/my-custom-flow.clj
+```
+
+### `golem session`
+
+Runs a single Claude Code session from a prompt file. Primarily used by `golem-dsl` as a session adapter — not typically called directly.
+
+```bash
+golem session --prompt prompt.md --dir /path/to/project
+golem session --prompt prompt.md --dry-run
+```
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--prompt` | `""` | Path to prompt file (required) |
+| `--dir` | cwd | Working directory |
+| `--max-turns` | `200` | Maximum tool calls for the session |
+| `--dry-run` | `false` | Print prompt and exit |
+
 ### `golem graph`
 
 Manages the code knowledge graph stored in `.ctx/graph.db`.
 
 ```bash
 golem graph build              # build or rebuild the full graph
+golem graph build --no-lsp     # build with tree-sitter only (no LSP)
 golem graph build --depth 200  # limit git history depth
 golem graph embed              # generate vector embeddings
 golem graph status             # show graph statistics
@@ -306,7 +363,7 @@ golem graph status             # show graph statistics
 
 | Subcommand | Description |
 |------------|-------------|
-| `build` | Scans the codebase with tree-sitter, indexes git history, and builds the graph |
+| `build` | Scans the codebase with LSP and tree-sitter, indexes co-change history, and builds the graph |
 | `embed` | Generates 384-dimensional vector embeddings using a local ONNX model (bge-small-en-v1.5) |
 | `status` | Displays node/edge counts, embedding stats, history, and execution tracking info |
 
@@ -350,12 +407,6 @@ Lists discovered pitfalls.
 ```bash
 golem add-task "implement auth module"
 golem add-task "price charts" --depends-on "price tracking"
-```
-
-### `golem lock`
-
-```bash
-golem lock src/auth/ --note "auth flow is complete and tested"
 ```
 
 ### `golem block`
@@ -426,10 +477,6 @@ decisions:
     why: "Need relational queries for price history"
     when: "2026-02-25"
 
-locked:
-  - path: "src/auth/"
-    note: "complete and tested"
-
 tasks:
   - name: "implement auth"
     status: done           # todo | in-progress | done | blocked
@@ -488,7 +535,7 @@ golem includes a built-in [MCP](https://modelcontextprotocol.io/) server that gi
 | `set_phase` | Change the project phase |
 | `add_decision` | Record an architectural decision |
 | `add_pitfall` | Record a lesson learned |
-| `add_locked` | Lock a completed module path |
+
 | `log_session` | Append a session entry to the log |
 
 When the knowledge graph exists (`.ctx/graph.db`), the MCP server also exposes graph query tools:
@@ -500,14 +547,16 @@ When the knowledge graph exists (`.ctx/graph.db`), the MCP server also exposes g
 | `find_dependents` | Find what depends on a symbol or file |
 | `graph_query` | General graph traversal (configurable direction, depth, edge types) |
 | `semantic_search` | Natural language search using embeddings |
-| `find_recent_changes` | Find commits affecting a file |
-| `find_file_history` | Get commit history for a file |
 | `find_co_changed` | Files that frequently change together |
 | `find_execution_failures` | Failed commands with stack traces |
 | `get_runtime_trace` | Command execution trace from a session |
 | `find_test_results` | Test results and which functions they exercise |
+| `lsp_definition` | Go to definition of a symbol at a file position |
+| `lsp_references` | Find all references to a symbol |
+| `lsp_hover` | Get type/doc info for a symbol at a position |
+| `lsp_diagnostics` | Get compiler diagnostics for a file |
 
-The MCP server is enabled by default (`--mcp`). golem writes a temporary `mcp_servers.json` and passes it to Claude via `--mcp-config`. The server runs as a subprocess (`golem mcp-serve`) using stdio transport and uses file locking to prevent concurrent writes.
+The MCP server is enabled by default (`--mcp`). golem writes a temporary `mcp_servers.json` and passes it to Claude via `--mcp-config`. The server runs as a subprocess (`golem mcp-serve`) using stdio transport and uses file locking to prevent concurrent writes. When LSP is enabled (default), the MCP server auto-detects project languages and starts LSP servers (e.g. gopls for Go) to power the `lsp_*` tools.
 
 If MCP tools are unavailable (e.g. older Claude Code version), the agent falls back to direct YAML editing.
 
@@ -562,7 +611,6 @@ Success resets both failure and unproductive counters.
 |-------|----------|---------|
 | Schema validation | **Halts loop** | `state.yaml` fails to parse or has invalid values |
 | State snapshot restore | Auto-recovery | State corrupted beyond repair — restores from snapshot |
-| Locked path violation | Warning | Agent modified files under a locked path |
 | Task regression | Warning | Task status went from `done` to non-done |
 
 Signal handling: `SIGINT`/`SIGTERM` gracefully cancel the current iteration and stop the loop.
@@ -573,9 +621,9 @@ golem builds a code knowledge graph that gives the agent structural awareness of
 
 ### What it indexes
 
-- **Code structure** — Functions, methods, types, classes, imports, and call relationships. Extracted via tree-sitter for Go, Python, JavaScript, and TypeScript. Unsupported languages are indexed as file nodes.
+- **Code structure** — Functions, methods, types, classes, imports, and call relationships. Extracted via LSP (with tree-sitter fallback) for Go, Python, JavaScript, and TypeScript. LSP provides precise cross-file call resolution. Unsupported languages are indexed as file nodes.
 - **Documentation** — Markdown files parsed into document/section nodes.
-- **Git history** — Commits, authors, and co-change relationships (files that frequently change together).
+- **Co-change relationships** — Files that frequently change together in git history.
 - **Execution traces** — Bash commands, test results, errors, and stack traces from agent sessions.
 
 ### Context engine
@@ -585,7 +633,7 @@ When the graph and embeddings exist, `golem code` automatically injects the most
 1. **Semantic search** — Embeds the current task text and finds the closest symbols by cosine similarity
 2. **Structural expansion** — Adds callers/callees of top hits (with score decay)
 3. **Co-change boost** — Boosts symbols in files that frequently change together
-4. **Recency boost** — Boosts symbols in recently modified files
+4. **Recency boost** — Boosts symbols in recently modified files (via git)
 5. **Failure boost** — Boosts symbols related to failed tests from the last execution session
 
 The top N symbols (default 15) are formatted as a "Relevant Context" section in the prompt, giving the agent a starting point for each task.
@@ -596,6 +644,78 @@ The top N symbols (default 15) are formatted as a "Relevant Context" section in 
 golem config set context-map true          # enable/disable (default: true)
 golem config set context-map-limit 20      # max symbols per iteration (default: 15)
 golem config set execution-history 5       # execution sessions to retain (default: 5)
+golem config set lsp true                  # enable/disable LSP servers (default: true)
+```
+
+## DSL Agents
+
+golem includes an optional Clojure-based DSL for defining multi-step agent workflows as composable graphs. The DSL runs as a sidecar binary (`golem-dsl`) that communicates with the Go CLI via NDJSON events on stdout and shared filesystem state.
+
+### Architecture
+
+```
+golem run build-feature --goal "add auth"
+    │
+    └── spawns: golem-dsl run build-feature --goal "add auth" --state-dir .
+                    │
+                    ├── emits NDJSON events on stdout (step-start, step-end, agent-done)
+                    ├── syncs state to .ctx/state.yaml after each step
+                    └── spawns: golem session --prompt <file> --dir .
+                                    │
+                                    └── runs: claude -p (headless Claude Code session)
+```
+
+### Configuration
+
+```bash
+golem config set engine dsl              # use DSL engine (default: go)
+golem config set dsl-command golem-dsl   # path to DSL binary
+golem config set agent build-feature     # default agent for golem code
+```
+
+### Defining Custom Agents
+
+Create `.clj` files in `.ctx/agents/` to define project-local agents:
+
+```clojure
+;; .ctx/agents/my-flow.clj
+(defagent my-flow
+  "Custom workflow for my project."
+  {:initial-state [:goal]}
+  (research)
+  (plan)
+  (implement)
+  (review)
+  (while needs-work? {:max 3}
+    (implement)
+    (review)))
+```
+
+Project-local agents take priority over built-in agents with the same name.
+
+### Built-in Agents
+
+| Agent | Description |
+|-------|-------------|
+| `build-feature` | Plan → implement → review loop (with retry on needs-work) |
+| `fix-bug` | Research → plan → implement → review |
+| `write-docs` | Reflect → plan → implement → review |
+| `review` | Single-pass code review |
+
+### Installing golem-dsl
+
+The DSL binary can be built from source using GraalVM native-image:
+
+```bash
+cd golem-dsl
+make native    # produces target/golem-dsl
+```
+
+Or run directly via Clojure:
+
+```bash
+cd golem-dsl
+clojure -M:run run build-feature --goal "add auth" --state-dir /path/to/project
 ```
 
 ## Design Principles
@@ -604,7 +724,6 @@ golem config set execution-history 5       # execution sessions to retain (defau
 - **Agent maintains state** — No external tool modifies state between iterations
 - **Flat YAML** — Human-readable, scannable in 10 seconds
 - **Decisions have "why"** — Prevents agent from rationalizing contradictions
-- **Locked paths** — Completed modules stay untouched
 - **Append-only log** — Full visibility into what happened
 
 ## License

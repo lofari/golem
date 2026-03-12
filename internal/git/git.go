@@ -29,22 +29,6 @@ func ChangedFiles(dir string) ([]string, error) {
 	return files, nil
 }
 
-// CheckLockedPaths returns files that were changed under locked paths.
-func CheckLockedPaths(changedFiles []string, lockedPaths []string) []string {
-	var violations []string
-	for _, file := range changedFiles {
-		for _, locked := range lockedPaths {
-			// Normalize: ensure locked path ends with / for directory matching
-			locked = strings.TrimSuffix(locked, "/") + "/"
-			if strings.HasPrefix(file, locked) || file == strings.TrimSuffix(locked, "/") {
-				violations = append(violations, file)
-				break
-			}
-		}
-	}
-	return violations
-}
-
 // HasUncommittedChanges checks if there are uncommitted changes in the given path.
 func HasUncommittedChanges(dir string, path string) bool {
 	cmd := exec.Command("git", "diff", "--name-only", "--", path)
