@@ -1,0 +1,7 @@
+{"type":"step-start","step":"plan","iteration":1,"agent":"build-feature"}
+{"type":"step-end","step":"plan","state-version":1}
+{"type":"step-start","step":"implement","iteration":2,"agent":"build-feature"}
+{"type":"step-end","step":"implement","state-version":2}
+{"type":"step-start","step":"review","iteration":3,"agent":"build-feature"}
+{"type":"step-end","step":"review","state-version":3}
+{"type":"agent-done","agent":"build-feature","outcome":"complete","total-steps":3}
