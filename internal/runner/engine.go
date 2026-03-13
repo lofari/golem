@@ -228,8 +228,146 @@ func (e *Engine) detectCodeChanges() {
 }
 
 func (e *Engine) execNode(ctx context.Context, node PipelineNode) error {
-	// Stub — will be implemented in Task 13.
-	return fmt.Errorf("execNode not yet implemented")
+	if node.Step != nil {
+		return e.execStep(ctx, node.Step)
+	}
+	if node.ControlFlow != nil {
+		return e.execControlFlow(ctx, node.ControlFlow)
+	}
+	return nil
+}
+
+func (e *Engine) execStep(ctx context.Context, step *Step) error {
+	e.emit(EngineEvent{Type: "step-start", Step: step.Name, StepType: step.Type})
+	start := time.Now()
+
+	var err error
+	switch step.Type {
+	case StepTypeAgentic:
+		err = e.execAgenticStep(ctx, step)
+	case StepTypeBuiltin:
+		err = e.execBuiltinStep(ctx, step)
+	case StepTypeShell:
+		err = e.execShellStep(ctx, step)
+	default:
+		err = fmt.Errorf("unknown step type: %s", step.Type)
+	}
+
+	status := "success"
+	if err != nil {
+		status = "error"
+	}
+	e.emit(EngineEvent{Type: "step-end", Step: step.Name, Status: status, Duration: time.Since(start).Milliseconds()})
+
+	if err != nil {
+		return e.handleError(ctx, step, err)
+	}
+	e.saveState()
+	return nil
+}
+
+func (e *Engine) execAgenticStep(ctx context.Context, step *Step) error {
+	tmpl, err := e.loadPromptTemplate(step)
+	if err != nil {
+		return err
+	}
+	prompt, err := RenderStepPrompt(tmpl, step.Reads, step.OptionalReads, e.state, e.cfg.Config, e.cfg.AgentName, e.RunID)
+	if err != nil {
+		return err
+	}
+
+	tools := step.Tools
+	if len(tools) == 0 {
+		tools = defaultTools[step.Name]
+	}
+
+	maxTurns := e.resolveMaxTurns(step)
+	timeout := e.resolveTimeout(step)
+
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	_, err = e.cfg.Runner.RunWithTools(ctx, e.cfg.Dir, prompt, maxTurns, e.resolveModel(step), tools)
+	if err != nil {
+		return &TransientError{Msg: fmt.Sprintf("agentic step %s: %v", step.Name, err)}
+	}
+
+	if err := e.readSessionOutput(step); err != nil {
+		return err
+	}
+
+	if sliceContains(step.Writes, "code") {
+		e.detectCodeChanges()
+	}
+
+	return nil
+}
+
+func (e *Engine) execBuiltinStep(ctx context.Context, step *Step) error {
+	var result PrimitiveResult
+	var err error
+
+	switch step.Name {
+	case "git-setup":
+		result, err = primitiveGitSetup(ctx, e.cfg.Dir, e.cfg.AgentName, e.cfg.Config)
+	case "lint":
+		result, err = primitiveLint(ctx, e.cfg.Dir, e.cfg.Config)
+	case "run-tests":
+		result, err = primitiveRunTests(ctx, e.cfg.Dir, e.cfg.Config)
+	case "ci-tests":
+		result, err = primitiveCITests(ctx, e.cfg.Dir, e.cfg.Config, e.state)
+	case "create-pr":
+		result, err = primitiveCreatePR(ctx, e.cfg.Dir, e.cfg.Config, e.state)
+	default:
+		return fmt.Errorf("unknown builtin primitive: %s", step.Name)
+	}
+
+	if err != nil {
+		return err
+	}
+	for k, v := range result {
+		e.state[k] = v
+	}
+	return nil
+}
+
+func (e *Engine) execShellStep(ctx context.Context, step *Step) error {
+	timeout := 5 * time.Minute
+	if step.Timeout != "" {
+		if d, err := time.ParseDuration(step.Timeout); err == nil {
+			timeout = d
+		}
+	}
+
+	out, err := runShellCmd(ctx, e.cfg.Dir, step.Command, timeout)
+
+	result := PrimitiveResult{"output": out}
+	if err != nil {
+		result["status"] = "fail"
+		if step.StepErrors != nil && step.StepErrors.NonZero == "halt" {
+			for k, v := range result {
+				e.state[k] = v
+			}
+			return &UnrecoverableError{Msg: fmt.Sprintf("shell step %q failed: %v", step.Name, err)}
+		}
+		return &TransientError{Msg: fmt.Sprintf("shell step %q failed: %v", step.Name, err)}
+	}
+	result["status"] = "pass"
+
+	for _, key := range step.Writes {
+		e.state[key] = result
+	}
+	return nil
+}
+
+func (e *Engine) execControlFlow(ctx context.Context, cf *ControlFlowNode) error {
+	// Stub — will be implemented in Task 14.
+	return fmt.Errorf("control flow %q not yet implemented", cf.Type)
+}
+
+func (e *Engine) handleError(ctx context.Context, step *Step, err error) error {
+	// Stub — will be implemented in Task 15.
+	return err
 }
 
 // Keep the compiler happy for imports used in later tasks.

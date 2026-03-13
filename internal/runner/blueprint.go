@@ -153,6 +153,16 @@ var validControlFlowFields = map[string]bool{
 	"else":      true,
 }
 
+// sliceContains checks if a string slice contains a value.
+func sliceContains(slice []string, val string) bool {
+	for _, s := range slice {
+		if s == val {
+			return true
+		}
+	}
+	return false
+}
+
 func isControlFlow(name string) bool {
 	return name == ControlWhile || name == ControlWhen || name == ControlIf
 }
