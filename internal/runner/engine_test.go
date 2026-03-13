@@ -2,6 +2,7 @@ package runner
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -186,5 +187,72 @@ func TestEngine_IfThenElse(t *testing.T) {
 	}
 	if len(mock.calls) != 1 {
 		t.Fatalf("expected 1 call, got %d", len(mock.calls))
+	}
+}
+
+func TestEngine_TransientRetry(t *testing.T) {
+	dir := setupGitRepo(t)
+	os.MkdirAll(filepath.Join(dir, ".ctx", "runs"), 0755)
+
+	step := &Step{Name: "plan", Type: StepTypeAgentic, Reads: []string{"goal"}, Writes: []string{"plan"}}
+	bp := &Blueprint{
+		Name: "test", InitialState: []string{"goal"}, Config: map[string]any{},
+		Errors: ErrorHandlers{
+			Transient:         ErrorHandler{Action: "retry", Max: 2},
+			ContractViolation: ErrorHandler{Action: "halt"},
+		},
+	}
+	bp.pipeline = &Pipeline{
+		Nodes:    []PipelineNode{{Step: step}},
+		StepDefs: map[string]*Step{"plan": step},
+	}
+
+	callCount := 0
+	failMock := &smartMockRunner{
+		responses: func(step string, callNum int) MockResponse {
+			callCount++
+			if callCount <= 2 {
+				return MockResponse{Err: fmt.Errorf("transient failure")}
+			}
+			return MockResponse{SessionOutput: map[string]any{"plan": "final plan"}}
+		},
+	}
+
+	e := NewEngine(EngineConfig{
+		Dir: dir, AgentName: "test", Goal: "Test",
+		Blueprint: bp, Config: map[string]any{}, Runner: failMock, Model: "test",
+	})
+
+	_, err := e.Run(context.Background())
+	if err != nil {
+		t.Fatalf("engine should recover after retries, got: %v", err)
+	}
+	if callCount != 3 {
+		t.Errorf("expected 3 calls (2 fails + 1 success), got %d", callCount)
+	}
+}
+
+func TestEngine_UnrecoverableHalts(t *testing.T) {
+	dir := setupGitRepo(t)
+	os.MkdirAll(filepath.Join(dir, ".ctx", "runs"), 0755)
+
+	step := &Step{Name: "lint", Type: StepTypeBuiltin, Reads: []string{"code"}, Writes: []string{"lint-results"}}
+	bp := &Blueprint{
+		Name: "test", InitialState: []string{"goal"}, Config: map[string]any{},
+		Errors: ErrorHandlers{ContractViolation: ErrorHandler{Action: "halt"}},
+	}
+	bp.pipeline = &Pipeline{
+		Nodes:    []PipelineNode{{Step: step}},
+		StepDefs: map[string]*Step{},
+	}
+
+	e := NewEngine(EngineConfig{
+		Dir: dir, AgentName: "test", Goal: "Test",
+		Blueprint: bp, Config: map[string]any{"lint-cmd": "nonexistent-cmd-xyz"}, Runner: nil, Model: "test",
+	})
+
+	_, err := e.Run(context.Background())
+	if err == nil {
+		t.Fatal("expected halt on unrecoverable error")
 	}
 }

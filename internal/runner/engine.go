@@ -454,9 +454,65 @@ func (e *Engine) execIf(ctx context.Context, cf *ControlFlowNode) error {
 }
 
 func (e *Engine) handleError(ctx context.Context, step *Step, err error) error {
-	// Stub — will be implemented in Task 15.
-	return err
+	var transient *TransientError
+	var unrecoverable *UnrecoverableError
+	var malformed *MalformedOutputError
+
+	switch {
+	case errors.As(err, &unrecoverable):
+		e.emit(EngineEvent{Type: "error-occurred", Step: step.Name, ErrorType: "unrecoverable", Action: "halt"})
+		return err
+
+	case errors.As(err, &malformed):
+		handler := e.cfg.Blueprint.Errors.MalformedOutput
+		if handler.Action == "" {
+			handler.Action = "halt"
+		}
+		return e.handleMalformedOutput(ctx, step, malformed, handler)
+
+	case errors.As(err, &transient):
+		handler := e.cfg.Blueprint.Errors.Transient
+		if handler.Action == "" {
+			handler.Action = "halt"
+		}
+		return e.handleTransient(ctx, step, handler)
+
+	default:
+		handler := e.cfg.Blueprint.Errors.Transient
+		if handler.Action == "" {
+			handler.Action = "halt"
+		}
+		return e.handleTransient(ctx, step, handler)
+	}
 }
 
-// Keep the compiler happy for imports used in later tasks.
-var _ = errors.As
+func (e *Engine) handleTransient(ctx context.Context, step *Step, handler ErrorHandler) error {
+	if handler.Action != "retry" || handler.Max <= 0 {
+		return fmt.Errorf("step %q failed (transient, no retry configured)", step.Name)
+	}
+	for attempt := 1; attempt <= handler.Max; attempt++ {
+		e.emit(EngineEvent{Type: "error-retry", Step: step.Name, ErrorType: "transient", Attempt: attempt, Action: "retry"})
+		if err := e.execStep(ctx, step); err == nil {
+			return nil
+		}
+	}
+	return fmt.Errorf("step %q failed after %d retries", step.Name, handler.Max)
+}
+
+func (e *Engine) handleMalformedOutput(ctx context.Context, step *Step, malformed *MalformedOutputError, handler ErrorHandler) error {
+	if handler.Action != "re-run" || handler.Max <= 0 {
+		return fmt.Errorf("step %q: malformed output: %s", step.Name, malformed.Msg)
+	}
+	for attempt := 1; attempt <= handler.Max; attempt++ {
+		e.emit(EngineEvent{Type: "error-retry", Step: step.Name, ErrorType: "malformed-output", Attempt: attempt, Action: "re-run"})
+		if handler.Hint != "" {
+			e.state["_hint"] = handler.Hint
+		}
+		if err := e.execStep(ctx, step); err == nil {
+			delete(e.state, "_hint")
+			return nil
+		}
+	}
+	delete(e.state, "_hint")
+	return fmt.Errorf("step %q: malformed output after %d re-runs: %s", step.Name, handler.Max, malformed.Msg)
+}
