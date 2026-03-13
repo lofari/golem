@@ -361,8 +361,96 @@ func (e *Engine) execShellStep(ctx context.Context, step *Step) error {
 }
 
 func (e *Engine) execControlFlow(ctx context.Context, cf *ControlFlowNode) error {
-	// Stub — will be implemented in Task 14.
-	return fmt.Errorf("control flow %q not yet implemented", cf.Type)
+	switch cf.Type {
+	case ControlWhile:
+		return e.execWhile(ctx, cf)
+	case ControlWhen:
+		return e.execWhen(ctx, cf)
+	case ControlIf:
+		return e.execIf(ctx, cf)
+	default:
+		return fmt.Errorf("unknown control flow type: %s", cf.Type)
+	}
+}
+
+func (e *Engine) execWhile(ctx context.Context, cf *ControlFlowNode) error {
+	for i := 0; i < cf.Max; i++ {
+		if !EvalPredicate(cf.Predicate, e.state, e.cfg.Config) {
+			e.emit(EngineEvent{Type: "loop-exit", Predicate: cf.Predicate, Reason: "false"})
+			return nil
+		}
+		e.emit(EngineEvent{Type: "loop-enter", Predicate: cf.Predicate, Iteration: i + 1, Max: cf.Max})
+
+		for _, ref := range cf.StepRefs {
+			step := e.cfg.Blueprint.pipeline.StepDefs[ref]
+			if step == nil {
+				for idx := range cf.InlineSteps {
+					if cf.InlineSteps[idx].Name == ref {
+						step = &cf.InlineSteps[idx]
+						break
+					}
+				}
+			}
+			if step == nil {
+				return fmt.Errorf("while loop: step %q not found", ref)
+			}
+			if err := e.execStep(ctx, step); err != nil {
+				return err
+			}
+		}
+	}
+	e.emit(EngineEvent{Type: "loop-exit", Predicate: cf.Predicate, Reason: "max"})
+	return nil
+}
+
+func (e *Engine) execWhen(ctx context.Context, cf *ControlFlowNode) error {
+	if !EvalPredicate(cf.Predicate, e.state, e.cfg.Config) {
+		e.emit(EngineEvent{Type: "conditional-skip", Predicate: cf.Predicate})
+		return nil
+	}
+	for _, ref := range cf.StepRefs {
+		step := e.cfg.Blueprint.pipeline.StepDefs[ref]
+		if step == nil {
+			for idx := range cf.InlineSteps {
+				if cf.InlineSteps[idx].Name == ref {
+					step = &cf.InlineSteps[idx]
+					break
+				}
+			}
+		}
+		if step == nil {
+			return fmt.Errorf("when block: step %q not found", ref)
+		}
+		if err := e.execStep(ctx, step); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (e *Engine) execIf(ctx context.Context, cf *ControlFlowNode) error {
+	refs := cf.ElseRefs
+	if EvalPredicate(cf.Predicate, e.state, e.cfg.Config) {
+		refs = cf.ThenRefs
+	}
+	for _, ref := range refs {
+		step := e.cfg.Blueprint.pipeline.StepDefs[ref]
+		if step == nil {
+			for idx := range cf.InlineSteps {
+				if cf.InlineSteps[idx].Name == ref {
+					step = &cf.InlineSteps[idx]
+					break
+				}
+			}
+		}
+		if step == nil {
+			return fmt.Errorf("if block: step %q not found", ref)
+		}
+		if err := e.execStep(ctx, step); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (e *Engine) handleError(ctx context.Context, step *Step, err error) error {
