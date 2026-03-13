@@ -238,6 +238,15 @@ func (e *Engine) execNode(ctx context.Context, node PipelineNode) error {
 }
 
 func (e *Engine) execStep(ctx context.Context, step *Step) error {
+	err := e.runStep(ctx, step)
+	if err != nil {
+		return e.handleError(ctx, step, err)
+	}
+	return nil
+}
+
+// runStep executes a step without error handling (used by retry logic to avoid re-entrancy).
+func (e *Engine) runStep(ctx context.Context, step *Step) error {
 	e.emit(EngineEvent{Type: "step-start", Step: step.Name, StepType: step.Type})
 	start := time.Now()
 
@@ -259,11 +268,10 @@ func (e *Engine) execStep(ctx context.Context, step *Step) error {
 	}
 	e.emit(EngineEvent{Type: "step-end", Step: step.Name, Status: status, Duration: time.Since(start).Milliseconds()})
 
-	if err != nil {
-		return e.handleError(ctx, step, err)
+	if err == nil {
+		e.saveState()
 	}
-	e.saveState()
-	return nil
+	return err
 }
 
 func (e *Engine) execAgenticStep(ctx context.Context, step *Step) error {
@@ -325,8 +333,25 @@ func (e *Engine) execBuiltinStep(ctx context.Context, step *Step) error {
 	if err != nil {
 		return err
 	}
-	for k, v := range result {
-		e.state[k] = v
+
+	// Store results: if step declares writes, store result under those keys.
+	// Primitives like git-setup write engine-managed keys (branch, base) directly.
+	if len(step.Writes) > 0 {
+		for _, key := range step.Writes {
+			if reservedKeys[key] {
+				// Reserved keys (branch, base) come from the result directly
+				if val, ok := result[key]; ok {
+					e.state[key] = val
+				}
+			} else {
+				e.state[key] = map[string]any(result)
+			}
+		}
+	} else {
+		// No declared writes — store flat (e.g., git-setup writes branch/base)
+		for k, v := range result {
+			e.state[k] = v
+		}
 	}
 	return nil
 }
@@ -381,22 +406,8 @@ func (e *Engine) execWhile(ctx context.Context, cf *ControlFlowNode) error {
 		}
 		e.emit(EngineEvent{Type: "loop-enter", Predicate: cf.Predicate, Iteration: i + 1, Max: cf.Max})
 
-		for _, ref := range cf.StepRefs {
-			step := e.cfg.Blueprint.pipeline.StepDefs[ref]
-			if step == nil {
-				for idx := range cf.InlineSteps {
-					if cf.InlineSteps[idx].Name == ref {
-						step = &cf.InlineSteps[idx]
-						break
-					}
-				}
-			}
-			if step == nil {
-				return fmt.Errorf("while loop: step %q not found", ref)
-			}
-			if err := e.execStep(ctx, step); err != nil {
-				return err
-			}
+		if err := e.execSubNodes(ctx, cf.SubNodes, cf.StepRefs, cf.InlineSteps, "while loop"); err != nil {
+			return err
 		}
 	}
 	e.emit(EngineEvent{Type: "loop-exit", Predicate: cf.Predicate, Reason: "max"})
@@ -408,18 +419,54 @@ func (e *Engine) execWhen(ctx context.Context, cf *ControlFlowNode) error {
 		e.emit(EngineEvent{Type: "conditional-skip", Predicate: cf.Predicate})
 		return nil
 	}
-	for _, ref := range cf.StepRefs {
-		step := e.cfg.Blueprint.pipeline.StepDefs[ref]
-		if step == nil {
-			for idx := range cf.InlineSteps {
-				if cf.InlineSteps[idx].Name == ref {
-					step = &cf.InlineSteps[idx]
-					break
+	return e.execSubNodes(ctx, cf.SubNodes, cf.StepRefs, cf.InlineSteps, "when block")
+}
+
+func (e *Engine) execIf(ctx context.Context, cf *ControlFlowNode) error {
+	if EvalPredicate(cf.Predicate, e.state, e.cfg.Config) {
+		return e.execSubNodes(ctx, cf.ThenNodes, cf.ThenRefs, cf.InlineSteps, "if block")
+	}
+	return e.execSubNodes(ctx, cf.ElseNodes, cf.ElseRefs, cf.InlineSteps, "if block")
+}
+
+// execSubNodes runs a list of sub-nodes. If SubNodes is populated (from parsed YAML),
+// it dispatches each node directly. Otherwise falls back to StepRefs lookup.
+func (e *Engine) execSubNodes(ctx context.Context, nodes []PipelineNode, refs []string, inlineSteps []Step, label string) error {
+	if len(nodes) > 0 {
+		for i, node := range nodes {
+			if node.ControlFlow != nil {
+				if err := e.execControlFlow(ctx, node.ControlFlow); err != nil {
+					return err
+				}
+				continue
+			}
+			if node.Step != nil {
+				if err := e.execStep(ctx, node.Step); err != nil {
+					return err
+				}
+				continue
+			}
+			// Placeholder node — resolve via ref
+			if i < len(refs) && refs[i] != "" {
+				step := e.resolveStepRef(refs[i], inlineSteps)
+				if step == nil {
+					return fmt.Errorf("%s: step %q not found", label, refs[i])
+				}
+				if err := e.execStep(ctx, step); err != nil {
+					return err
 				}
 			}
 		}
+		return nil
+	}
+	// Fallback: use refs directly (for programmatically constructed pipelines)
+	for _, ref := range refs {
+		if ref == "" {
+			continue
+		}
+		step := e.resolveStepRef(ref, inlineSteps)
 		if step == nil {
-			return fmt.Errorf("when block: step %q not found", ref)
+			return fmt.Errorf("%s: step %q not found", label, ref)
 		}
 		if err := e.execStep(ctx, step); err != nil {
 			return err
@@ -428,26 +475,14 @@ func (e *Engine) execWhen(ctx context.Context, cf *ControlFlowNode) error {
 	return nil
 }
 
-func (e *Engine) execIf(ctx context.Context, cf *ControlFlowNode) error {
-	refs := cf.ElseRefs
-	if EvalPredicate(cf.Predicate, e.state, e.cfg.Config) {
-		refs = cf.ThenRefs
+// resolveStepRef looks up a step by name in pipeline StepDefs, then in inline steps.
+func (e *Engine) resolveStepRef(ref string, inlineSteps []Step) *Step {
+	if step := e.cfg.Blueprint.pipeline.StepDefs[ref]; step != nil {
+		return step
 	}
-	for _, ref := range refs {
-		step := e.cfg.Blueprint.pipeline.StepDefs[ref]
-		if step == nil {
-			for idx := range cf.InlineSteps {
-				if cf.InlineSteps[idx].Name == ref {
-					step = &cf.InlineSteps[idx]
-					break
-				}
-			}
-		}
-		if step == nil {
-			return fmt.Errorf("if block: step %q not found", ref)
-		}
-		if err := e.execStep(ctx, step); err != nil {
-			return err
+	for idx := range inlineSteps {
+		if inlineSteps[idx].Name == ref {
+			return &inlineSteps[idx]
 		}
 	}
 	return nil
@@ -492,7 +527,7 @@ func (e *Engine) handleTransient(ctx context.Context, step *Step, handler ErrorH
 	}
 	for attempt := 1; attempt <= handler.Max; attempt++ {
 		e.emit(EngineEvent{Type: "error-retry", Step: step.Name, ErrorType: "transient", Attempt: attempt, Action: "retry"})
-		if err := e.execStep(ctx, step); err == nil {
+		if err := e.runStep(ctx, step); err == nil {
 			return nil
 		}
 	}
@@ -508,7 +543,7 @@ func (e *Engine) handleMalformedOutput(ctx context.Context, step *Step, malforme
 		if handler.Hint != "" {
 			e.state["_hint"] = handler.Hint
 		}
-		if err := e.execStep(ctx, step); err == nil {
+		if err := e.runStep(ctx, step); err == nil {
 			delete(e.state, "_hint")
 			return nil
 		}

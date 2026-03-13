@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/lofari/golem/templates"
 )
 
 func TestEngine_RunID(t *testing.T) {
@@ -254,5 +256,100 @@ func TestEngine_UnrecoverableHalts(t *testing.T) {
 	_, err := e.Run(context.Background())
 	if err == nil {
 		t.Fatal("expected halt on unrecoverable error")
+	}
+}
+
+func TestEngine_Integration_OneShot(t *testing.T) {
+	dir := setupGitRepo(t)
+	os.MkdirAll(filepath.Join(dir, ".ctx", "runs"), 0755)
+
+	data, err := templates.FS.ReadFile("agents/one-shot.yaml")
+	if err != nil {
+		t.Fatalf("read one-shot.yaml: %v", err)
+	}
+	bp, err := ParseBlueprint(data)
+	if err != nil {
+		t.Fatalf("parse blueprint: %v", err)
+	}
+	if err := bp.ValidateContracts(); err != nil {
+		t.Fatalf("contract validation: %v", err)
+	}
+
+	mock := &smartMockRunner{
+		responses: func(step string, callNum int) MockResponse {
+			return MockResponse{
+				SessionOutput: map[string]any{
+					"test-results": map[string]any{"status": "pass", "summary": "all green"},
+				},
+			}
+		},
+	}
+
+	config := map[string]any{"lint-cmd": "true", "test-cmd": "true", "ci-enabled": false}
+
+	e := NewEngine(EngineConfig{
+		Dir: dir, AgentName: "one-shot", Goal: "Add auth",
+		Blueprint: bp, Config: config, Runner: mock, Model: "test",
+	})
+
+	state, err := e.Run(context.Background())
+	if err != nil {
+		t.Fatalf("engine error: %v", err)
+	}
+
+	for _, key := range []string{"goal", "branch", "base", "test-results", "lint-results"} {
+		if state[key] == nil {
+			t.Errorf("state[%q] should be present", key)
+		}
+	}
+}
+
+func TestEngine_Integration_BuildFeatureLoop(t *testing.T) {
+	dir := setupGitRepo(t)
+	os.MkdirAll(filepath.Join(dir, ".ctx", "runs"), 0755)
+
+	data, err := templates.FS.ReadFile("agents/build-feature.yaml")
+	if err != nil {
+		t.Fatalf("read build-feature.yaml: %v", err)
+	}
+	bp, err := ParseBlueprint(data)
+	if err != nil {
+		t.Fatalf("parse blueprint: %v", err)
+	}
+
+	reviewCalls := 0
+	mock := &smartMockRunner{
+		responses: func(step string, callNum int) MockResponse {
+			if step == "review" {
+				reviewCalls++
+				if reviewCalls == 1 {
+					return MockResponse{SessionOutput: map[string]any{"review-feedback": map[string]any{"verdict": "needs-work", "comments": "fix tests"}}}
+				}
+				return MockResponse{SessionOutput: map[string]any{"review-feedback": map[string]any{"verdict": "approved"}}}
+			}
+			if step == "plan" {
+				return MockResponse{SessionOutput: map[string]any{"plan": []any{map[string]any{"step": 1, "desc": "do it"}}}}
+			}
+			return MockResponse{SessionOutput: map[string]any{"test-results": map[string]any{"status": "pass"}}}
+		},
+	}
+
+	config := map[string]any{"lint-cmd": "true", "test-cmd": "true", "ci-enabled": false}
+	e := NewEngine(EngineConfig{
+		Dir: dir, AgentName: "build-feature", Goal: "Add auth",
+		Blueprint: bp, Config: config, Runner: mock, Model: "test",
+	})
+
+	state, err := e.Run(context.Background())
+	if err != nil {
+		t.Fatalf("engine error: %v", err)
+	}
+
+	if reviewCalls != 2 {
+		t.Errorf("review was called %d times, want 2", reviewCalls)
+	}
+	verdict := getNestedString(state, "review-feedback", "verdict")
+	if verdict != "approved" {
+		t.Errorf("final verdict = %q, want approved", verdict)
 	}
 }

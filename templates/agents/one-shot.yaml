@@ -15,7 +15,7 @@ steps:
   - implement:
       type: agentic
       reads: [goal]
-      optional-reads: [lint-results, test-results, ci-results]
+      optional-reads: [plan, lint-results, test-results, ci-results]
       writes: [code, test-results]
 
   - lint:

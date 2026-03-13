@@ -71,6 +71,9 @@ type ControlFlowNode struct {
 	ThenRefs    []string
 	ElseRefs    []string
 	InlineSteps []Step
+	SubNodes    []PipelineNode // nested control flow + steps (used by when/while/if)
+	ThenNodes   []PipelineNode // for if-then
+	ElseNodes   []PipelineNode // for if-else
 }
 
 // PipelineNode is either a step or a control flow node.
@@ -252,11 +255,13 @@ func parseSteps(doc *yaml.Node) ([]Step, *Pipeline, error) {
 		stepName := item.Content[0].Value
 		stepBody := item.Content[1]
 
-		// Check for duplicate step names
-		if seen[stepName] {
-			return nil, nil, fmt.Errorf("blueprint: duplicate step name %q", stepName)
+		// Check for duplicate step names (skip control flow keywords — they can repeat)
+		if !isControlFlow(stepName) {
+			if seen[stepName] {
+				return nil, nil, fmt.Errorf("blueprint: duplicate step name %q", stepName)
+			}
+			seen[stepName] = true
 		}
-		seen[stepName] = true
 
 		if isControlFlow(stepName) {
 			cf, err := parseControlFlowNode(stepName, stepBody, seen)
@@ -362,26 +367,29 @@ func parseControlFlowNode(cfType string, body *yaml.Node, seen map[string]bool) 
 			}
 			cf.Max = maxVal
 		case "steps":
-			refs, inlineSteps, err := parseControlFlowSteps(val, seen)
+			refs, inlineSteps, nodes, err := parseControlFlowSteps(val, seen)
 			if err != nil {
 				return nil, err
 			}
 			cf.StepRefs = refs
 			cf.InlineSteps = append(cf.InlineSteps, inlineSteps...)
+			cf.SubNodes = nodes
 		case "then":
-			refs, inlineSteps, err := parseControlFlowSteps(val, seen)
+			refs, inlineSteps, nodes, err := parseControlFlowSteps(val, seen)
 			if err != nil {
 				return nil, err
 			}
 			cf.ThenRefs = refs
 			cf.InlineSteps = append(cf.InlineSteps, inlineSteps...)
+			cf.ThenNodes = nodes
 		case "else":
-			refs, inlineSteps, err := parseControlFlowSteps(val, seen)
+			refs, inlineSteps, nodes, err := parseControlFlowSteps(val, seen)
 			if err != nil {
 				return nil, err
 			}
 			cf.ElseRefs = refs
 			cf.InlineSteps = append(cf.InlineSteps, inlineSteps...)
+			cf.ElseNodes = nodes
 		}
 	}
 
@@ -389,43 +397,59 @@ func parseControlFlowNode(cfType string, body *yaml.Node, seen map[string]bool) 
 }
 
 // parseControlFlowSteps parses the steps/then/else value which can be a sequence of
-// string references or inline step definitions.
-func parseControlFlowSteps(node *yaml.Node, seen map[string]bool) ([]string, []Step, error) {
+// string references, inline step definitions, or nested control flow nodes.
+func parseControlFlowSteps(node *yaml.Node, seen map[string]bool) ([]string, []Step, []PipelineNode, error) {
 	if node.Kind != yaml.SequenceNode {
-		return nil, nil, fmt.Errorf("blueprint: control flow steps must be a sequence")
+		return nil, nil, nil, fmt.Errorf("blueprint: control flow steps must be a sequence")
 	}
 
 	var refs []string
 	var inlineSteps []Step
+	var nodes []PipelineNode
 
 	for _, item := range node.Content {
 		switch item.Kind {
 		case yaml.ScalarNode:
 			// String reference to a step name
 			refs = append(refs, item.Value)
+			nodes = append(nodes, PipelineNode{}) // placeholder, resolved at exec time
 		case yaml.MappingNode:
-			// Inline step definition
+			// Inline step or nested control flow
 			if len(item.Content) < 2 {
-				return nil, nil, fmt.Errorf("blueprint: empty inline step")
+				return nil, nil, nil, fmt.Errorf("blueprint: empty inline step")
 			}
-			stepName := item.Content[0].Value
-			stepBody := item.Content[1]
-			if seen[stepName] {
-				return nil, nil, fmt.Errorf("blueprint: duplicate step name %q", stepName)
+			name := item.Content[0].Value
+			body := item.Content[1]
+
+			if isControlFlow(name) {
+				// Nested control flow node
+				cf, err := parseControlFlowNode(name, body, seen)
+				if err != nil {
+					return nil, nil, nil, err
+				}
+				nodes = append(nodes, PipelineNode{ControlFlow: cf})
+				// Add inline steps from nested control flow for contract validation
+				inlineSteps = append(inlineSteps, cf.InlineSteps...)
+				refs = append(refs, "") // empty ref signals a control flow node
+			} else {
+				if seen[name] {
+					return nil, nil, nil, fmt.Errorf("blueprint: duplicate step name %q", name)
+				}
+				seen[name] = true
+				step, err := parseStepNode(name, body)
+				if err != nil {
+					return nil, nil, nil, err
+				}
+				inlineSteps = append(inlineSteps, *step)
+				refs = append(refs, name)
+				nodes = append(nodes, PipelineNode{Step: step})
 			}
-			seen[stepName] = true
-			step, err := parseStepNode(stepName, stepBody)
-			if err != nil {
-				return nil, nil, err
-			}
-			inlineSteps = append(inlineSteps, *step)
-			refs = append(refs, stepName)
 		default:
-			return nil, nil, fmt.Errorf("blueprint: unexpected node type in control flow steps")
+			return nil, nil, nil, fmt.Errorf("blueprint: unexpected node type in control flow steps")
 		}
 	}
 
-	return refs, inlineSteps, nil
+	return refs, inlineSteps, nodes, nil
 }
 
 // ValidateContracts checks that every step's reads are satisfied by prior writes or initial state.
