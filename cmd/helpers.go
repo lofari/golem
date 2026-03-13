@@ -12,6 +12,7 @@ import (
 type resolvedConfig struct {
 	config.Config
 	Task   string
+	Goal   string
 	DryRun bool
 	Review bool
 }
@@ -29,6 +30,16 @@ func addAgentFlags(cmd *cobra.Command) {
 	cmd.Flags().String("sandbox-memory", "", "sandbox memory limit (e.g., 8g)")
 	cmd.Flags().Bool("mcp", true, "enable golem MCP server for structured state updates")
 	cmd.Flags().Bool("no-context-map", false, "disable context map injection")
+	// Only add these if not already defined (run.go defines --goal separately)
+	if cmd.Flags().Lookup("goal") == nil {
+		cmd.Flags().String("goal", "", "goal for the blueprint engine (populates initial pipeline state)")
+	}
+	if cmd.Flags().Lookup("agent") == nil {
+		cmd.Flags().String("agent", "", "agent to run (e.g., build-feature, fix-bug, one-shot)")
+	}
+	if cmd.Flags().Lookup("engine") == nil {
+		cmd.Flags().String("engine", "", "execution engine: go (legacy builder), blueprint (YAML pipeline), dsl")
+	}
 }
 
 // resolveConfig loads config files and applies flag overrides.
@@ -86,8 +97,19 @@ func resolveConfig(cmd *cobra.Command, dir string) resolvedConfig {
 		}
 	}
 
+	if cmd.Flags().Changed("agent") {
+		cfg.Agent, _ = cmd.Flags().GetString("agent")
+	}
+	if cmd.Flags().Changed("engine") {
+		cfg.Engine, _ = cmd.Flags().GetString("engine")
+	}
+
 	rc := resolvedConfig{Config: cfg}
 	rc.Task, _ = cmd.Flags().GetString("task")
+	rc.Goal, _ = cmd.Flags().GetString("goal")
+	if rc.Goal == "" {
+		rc.Goal = rc.Task
+	}
 	rc.DryRun, _ = cmd.Flags().GetBool("dry-run")
 	rc.Review, _ = cmd.Flags().GetBool("review")
 	return rc

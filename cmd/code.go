@@ -4,12 +4,14 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 
 	"github.com/spf13/cobra"
 
 	"github.com/lofari/golem/internal/runner"
 	"github.com/lofari/golem/internal/scaffold"
+	"github.com/lofari/golem/templates"
 )
 
 var codeCmd = &cobra.Command{
@@ -29,6 +31,44 @@ var codeCmd = &cobra.Command{
 		defer stop()
 
 		rc := resolveConfig(cmd, dir)
+
+		if rc.Engine == "blueprint" {
+			agentName := rc.Agent
+			agentData, err := loadAgent(agentName, dir)
+			if err != nil {
+				return err
+			}
+			bp, err := runner.ParseBlueprint(agentData)
+			if err != nil {
+				return err
+			}
+			if err := bp.ValidateContracts(); err != nil {
+				return err
+			}
+
+			mergedConfig := mergeAgentConfig(bp.Config, rc.AgentOpts)
+			cr := newClaudeRunner(rc)
+			events := make(chan runner.EngineEvent, 100)
+
+			e := runner.NewEngine(runner.EngineConfig{
+				Dir:       dir,
+				AgentName: agentName,
+				Goal:      rc.Goal,
+				Blueprint: bp,
+				Config:    mergedConfig,
+				Runner:    cr,
+				Model:     rc.Model,
+				Events:    events,
+				Verbose:   rc.Verbose,
+			})
+
+			state, err := e.Run(ctx)
+			if err != nil {
+				return fmt.Errorf("blueprint engine: %w", err)
+			}
+			_ = state
+			return nil
+		}
 
 		if shouldUseDSL(rc.Engine) {
 			dsl := &runner.DSLRunner{
@@ -91,6 +131,31 @@ var codeCmd = &cobra.Command{
 
 func shouldUseDSL(engine string) bool {
 	return engine == "dsl"
+}
+
+func loadAgent(name, dir string) ([]byte, error) {
+	// 1. Check .ctx/agents/<name>.yaml
+	projectPath := filepath.Join(dir, ".ctx", "agents", name+".yaml")
+	if data, err := os.ReadFile(projectPath); err == nil {
+		return data, nil
+	}
+	// 2. Check embedded templates
+	data, err := templates.FS.ReadFile("agents/" + name + ".yaml")
+	if err != nil {
+		return nil, fmt.Errorf("agent %q not found. Searched: .ctx/agents/, built-in templates", name)
+	}
+	return data, nil
+}
+
+func mergeAgentConfig(agentDefaults map[string]any, agentOpts map[string]interface{}) map[string]any {
+	merged := make(map[string]any)
+	for k, v := range agentDefaults {
+		merged[k] = v
+	}
+	for k, v := range agentOpts {
+		merged[k] = v
+	}
+	return merged
 }
 
 func init() {

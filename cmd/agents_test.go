@@ -6,11 +6,11 @@ import (
 	"testing"
 )
 
-func TestFindProjectAgents_FindsClj(t *testing.T) {
+func TestFindProjectAgents_FindsYaml(t *testing.T) {
 	dir := t.TempDir()
 	agentsDir := filepath.Join(dir, ".ctx", "agents")
 	os.MkdirAll(agentsDir, 0755)
-	os.WriteFile(filepath.Join(agentsDir, "my-flow.clj"), []byte("(defagent my-flow)"), 0644)
+	os.WriteFile(filepath.Join(agentsDir, "my-flow.yaml"), []byte("name: my-flow"), 0644)
 
 	agents, err := findProjectAgents(agentsDir)
 	if err != nil {
@@ -21,10 +21,10 @@ func TestFindProjectAgents_FindsClj(t *testing.T) {
 	}
 }
 
-func TestFindProjectAgents_IgnoresNonClj(t *testing.T) {
+func TestFindProjectAgents_IgnoresNonYaml(t *testing.T) {
 	dir := t.TempDir()
 	os.WriteFile(filepath.Join(dir, "readme.md"), []byte("hi"), 0644)
-	os.WriteFile(filepath.Join(dir, "agent.clj"), []byte("ok"), 0644)
+	os.WriteFile(filepath.Join(dir, "agent.yaml"), []byte("name: agent"), 0644)
 
 	agents, err := findProjectAgents(dir)
 	if err != nil {
