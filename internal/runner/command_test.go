@@ -188,3 +188,40 @@ func TestBuildCommand_SandboxNoTimeoutMemoryWhenEmpty(t *testing.T) {
 		t.Errorf("should not include --memory when empty, got: %s", joined)
 	}
 }
+
+func TestBuildCommand_WithToolsEnv_Sandbox(t *testing.T) {
+	cr := &ClaudeRunner{Sandbox: true, SandboxTools: []string{"go"}}
+	toolsEnv := "semantic_search,find_callers"
+	args := []string{"-p", "--output-format", "stream-json", "--max-turns", "50"}
+
+	name, gotArgs := cr.buildCommand("/tmp/project", args, toolsEnv)
+
+	if name != "warden" {
+		t.Fatalf("expected warden, got %q", name)
+	}
+	found := false
+	for i, arg := range gotArgs {
+		if arg == "--env" && i+1 < len(gotArgs) && strings.HasPrefix(gotArgs[i+1], "GOLEM_TOOLS=") {
+			found = true
+			if gotArgs[i+1] != "GOLEM_TOOLS=semantic_search,find_callers" {
+				t.Errorf("GOLEM_TOOLS value = %q, want %q", gotArgs[i+1], "GOLEM_TOOLS=semantic_search,find_callers")
+			}
+			break
+		}
+	}
+	if !found {
+		t.Errorf("--env GOLEM_TOOLS not found in warden args: %v", gotArgs)
+	}
+}
+
+func TestBuildCommand_WithToolsEnv_NoSandbox(t *testing.T) {
+	cr := &ClaudeRunner{}
+	toolsEnv := "semantic_search"
+	args := []string{"-p"}
+
+	name, _ := cr.buildCommand("/tmp/project", args, toolsEnv)
+
+	if name != "claude" {
+		t.Fatalf("expected claude, got %q", name)
+	}
+}

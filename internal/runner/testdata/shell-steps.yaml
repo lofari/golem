@@ -1,0 +1,33 @@
+name: shell-agent
+description: "Agent with shell step"
+initial-state: [goal]
+
+config: {}
+
+steps:
+  - git-setup:
+      type: builtin
+
+  - implement:
+      type: agentic
+      reads: [goal]
+      writes: [code]
+
+  - db-migrate:
+      type: shell
+      command: "make db-migrate"
+      timeout: 60s
+      reads: [code]
+      writes: [migration-results]
+      errors:
+        non-zero: halt
+
+  - create-pr:
+      type: builtin
+      reads: [code, goal]
+      optional-reads: [migration-results]
+      writes: [pr-result]
+
+errors:
+  transient: { action: retry, max: 2 }
+  contract-violation: { action: halt }

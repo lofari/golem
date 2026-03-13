@@ -1,0 +1,14 @@
+name: bad-fields
+description: "Agent with unknown field"
+initial-state: [goal]
+
+config: {}
+
+steps:
+  - plan:
+      type: agentic
+      reads: [goal]
+      write: [plan]
+      tool: [semantic_search]
+
+errors: {}
