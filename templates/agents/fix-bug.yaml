@@ -1,0 +1,69 @@
+name: fix-bug
+description: "Research, fix, validate, ship."
+initial-state: [goal]
+
+config:
+  lint-cmd: null
+  lint-fix-cmd: null
+  test-cmd: null
+  ci-enabled: false
+
+steps:
+  - git-setup:
+      type: builtin
+
+  - research:
+      type: agentic
+      reads: [goal]
+      writes: [research-context]
+      tools: [semantic_search, find_callers, find_dependencies,
+              find_co_changed, find_execution_failures, get_runtime_trace]
+
+  - implement:
+      type: agentic
+      reads: [goal, research-context]
+      optional-reads: [lint-results, test-results]
+      writes: [code, test-results]
+
+  - lint:
+      type: builtin
+      reads: [code]
+      writes: [lint-results]
+
+  - run-tests:
+      type: builtin
+      reads: [code]
+      writes: [test-results]
+
+  - when:
+      predicate: failed
+      steps:
+        - implement
+        - lint
+        - run-tests
+
+  - when:
+      predicate: lint-failed
+      steps:
+        - implement
+        - lint
+        - run-tests
+
+  - when:
+      predicate: ci-enabled
+      steps:
+        - ci-tests:
+            type: builtin
+            reads: [code]
+            writes: [ci-results]
+
+  - create-pr:
+      type: builtin
+      reads: [code, goal]
+      optional-reads: [research-context, test-results, ci-results, lint-results]
+      writes: [pr-result]
+
+errors:
+  transient: { action: retry, max: 2 }
+  malformed-output: { action: re-run, max: 2, hint: "Write session-output.json with required keys." }
+  contract-violation: { action: halt }
