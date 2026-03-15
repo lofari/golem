@@ -468,6 +468,34 @@ func TestResolveHandler_Priority(t *testing.T) {
 	}
 }
 
+func TestEngine_EvalPredicate_Custom(t *testing.T) {
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, ".ctx", "runs"), 0755)
+
+	bp := &Blueprint{
+		Predicates: map[string]string{
+			"custom-check": `test-results.status == "fail"`,
+		},
+		pipeline: &Pipeline{StepDefs: map[string]*Step{}},
+	}
+	// Parse predicates to populate parsedPredicates cache
+	parsed, _ := parsePredicates(bp.Predicates)
+	bp.parsedPredicates = parsed
+
+	e := NewEngine(EngineConfig{Dir: dir, AgentName: "test", Goal: "test", Blueprint: bp})
+
+	state := map[string]any{"test-results": map[string]any{"status": "fail"}}
+	if !e.evalPredicate("custom-check", state, nil) {
+		t.Error("custom predicate should match")
+	}
+	if e.evalPredicate("custom-check", map[string]any{}, nil) {
+		t.Error("custom predicate should not match on empty state")
+	}
+	if !e.evalPredicate("needs-work", map[string]any{"review-feedback": map[string]any{"verdict": "needs-work"}}, nil) {
+		t.Error("built-in predicate should still work")
+	}
+}
+
 func TestEngine_Integration_BuildFeatureLoop(t *testing.T) {
 	dir := setupGitRepo(t)
 	os.MkdirAll(filepath.Join(dir, ".ctx", "runs"), 0755)

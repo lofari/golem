@@ -439,9 +439,19 @@ func (e *Engine) execControlFlow(ctx context.Context, cf *ControlFlowNode) error
 	}
 }
 
+func (e *Engine) evalPredicate(name string, state map[string]any, config map[string]any) bool {
+	if e.cfg.Blueprint != nil && e.cfg.Blueprint.parsedPredicates != nil {
+		if expr, ok := e.cfg.Blueprint.parsedPredicates[name]; ok {
+			return expr.Eval(state, config)
+		}
+	}
+	result, _ := evalBuiltinPredicate(name, state, config)
+	return result
+}
+
 func (e *Engine) execWhile(ctx context.Context, cf *ControlFlowNode) error {
 	for i := 0; i < cf.Max; i++ {
-		if !EvalPredicate(cf.Predicate, e.state, e.cfg.Config) {
+		if !e.evalPredicate(cf.Predicate, e.state, e.cfg.Config) {
 			e.emit(EngineEvent{Type: "loop-exit", Predicate: cf.Predicate, Reason: "false"})
 			return nil
 		}
@@ -456,7 +466,7 @@ func (e *Engine) execWhile(ctx context.Context, cf *ControlFlowNode) error {
 }
 
 func (e *Engine) execWhen(ctx context.Context, cf *ControlFlowNode) error {
-	if !EvalPredicate(cf.Predicate, e.state, e.cfg.Config) {
+	if !e.evalPredicate(cf.Predicate, e.state, e.cfg.Config) {
 		e.emit(EngineEvent{Type: "conditional-skip", Predicate: cf.Predicate})
 		return nil
 	}
@@ -464,7 +474,7 @@ func (e *Engine) execWhen(ctx context.Context, cf *ControlFlowNode) error {
 }
 
 func (e *Engine) execIf(ctx context.Context, cf *ControlFlowNode) error {
-	if EvalPredicate(cf.Predicate, e.state, e.cfg.Config) {
+	if e.evalPredicate(cf.Predicate, e.state, e.cfg.Config) {
 		return e.execSubNodes(ctx, cf.ThenNodes, cf.ThenRefs, cf.InlineSteps, "if block")
 	}
 	return e.execSubNodes(ctx, cf.ElseNodes, cf.ElseRefs, cf.InlineSteps, "if block")

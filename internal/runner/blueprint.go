@@ -33,13 +33,15 @@ var reservedKeys = map[string]bool{
 
 // Blueprint represents a parsed blueprint YAML file.
 type Blueprint struct {
-	Name         string         `yaml:"name"`
-	Description  string         `yaml:"description"`
-	InitialState []string       `yaml:"initial-state"`
-	Config       map[string]any `yaml:"config"`
-	Steps        []Step         `yaml:"-"`
-	Errors       ErrorHandlers  `yaml:"errors"`
-	pipeline     *Pipeline
+	Name            string                    `yaml:"name"`
+	Description     string                    `yaml:"description"`
+	InitialState    []string                  `yaml:"initial-state"`
+	Config          map[string]any            `yaml:"config"`
+	Steps           []Step                    `yaml:"-"`
+	Errors          ErrorHandlers             `yaml:"errors"`
+	Predicates      map[string]string         `yaml:"predicates"`
+	parsedPredicates map[string]*PredicateExpr // unexported, cached at parse time
+	pipeline        *Pipeline
 }
 
 // Step represents a single step in a blueprint pipeline.
@@ -230,7 +232,28 @@ func ParseBlueprint(data []byte) (*Blueprint, error) {
 		return nil, err
 	}
 
+	parsed, err := parsePredicates(bp.Predicates)
+	if err != nil {
+		return nil, err
+	}
+	bp.parsedPredicates = parsed
+
 	return &bp, nil
+}
+
+func parsePredicates(preds map[string]string) (map[string]*PredicateExpr, error) {
+	if len(preds) == 0 {
+		return nil, nil
+	}
+	result := make(map[string]*PredicateExpr, len(preds))
+	for name, expr := range preds {
+		parsed, err := ParsePredicateExpr(expr)
+		if err != nil {
+			return nil, fmt.Errorf("blueprint: predicate %q: %w", name, err)
+		}
+		result[name] = parsed
+	}
+	return result, nil
 }
 
 // validTopLevelFields is the set of valid fields at the document root.
@@ -241,6 +264,7 @@ var validTopLevelFields = map[string]bool{
 	"config":        true,
 	"steps":         true,
 	"errors":        true,
+	"predicates":    true,
 }
 
 // knownTopLevelFields maps common typos to the correct field name.

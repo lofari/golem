@@ -247,3 +247,46 @@ func TestRenderTemplate_ConfigVars(t *testing.T) {
 		t.Errorf("config var not replaced, got: %s", result)
 	}
 }
+
+func TestParseBlueprint_CustomPredicates(t *testing.T) {
+	data := []byte(`
+name: test
+initial-state: [goal]
+predicates:
+  custom-pred: test-results.status == "fail"
+  high-coverage: test-results.coverage > 80
+steps:
+  - plan:
+      type: agentic
+      reads: [goal]
+      writes: [plan]
+`)
+	bp, err := ParseBlueprint(data)
+	if err != nil {
+		t.Fatalf("ParseBlueprint error: %v", err)
+	}
+	if len(bp.Predicates) != 2 {
+		t.Fatalf("expected 2 predicates, got %d", len(bp.Predicates))
+	}
+	if bp.Predicates["custom-pred"] != `test-results.status == "fail"` {
+		t.Errorf("unexpected predicate expr: %s", bp.Predicates["custom-pred"])
+	}
+}
+
+func TestParseBlueprint_InvalidPredicateExpr(t *testing.T) {
+	data := []byte(`
+name: test
+initial-state: [goal]
+predicates:
+  bad-pred: no-operator-here
+steps:
+  - plan:
+      type: agentic
+      reads: [goal]
+      writes: [plan]
+`)
+	_, err := ParseBlueprint(data)
+	if err == nil {
+		t.Fatal("expected error for invalid predicate expression")
+	}
+}
