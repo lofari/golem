@@ -150,6 +150,125 @@ func primitiveSyncState(_ context.Context, dir string, _ map[string]any, pipelin
 	return result, nil
 }
 
+// primitivePickTask selects the next task to work on.
+func primitivePickTask(_ context.Context, dir string, config map[string]any, pipelineState map[string]any) (PrimitiveResult, error) {
+	tasksRaw, ok := pipelineState["tasks"].([]any)
+	if !ok || len(tasksRaw) == 0 {
+		return nil, &UnrecoverableError{Msg: "pick-task: no tasks in state"}
+	}
+
+	// Check for task override
+	if config != nil {
+		if override, ok := config["task"].(string); ok && override != "" {
+			for _, t := range tasksRaw {
+				tm, ok := t.(map[string]any)
+				if !ok {
+					continue
+				}
+				if tm["name"] == override {
+					return PrimitiveResult{
+						"current-task": buildCurrentTask(tm, dir, pipelineState),
+					}, nil
+				}
+			}
+			return nil, &UnrecoverableError{Msg: fmt.Sprintf("pick-task: override task %q not found", override)}
+		}
+	}
+
+	// Build done set for dependency checking
+	doneSet := make(map[string]bool)
+	for _, t := range tasksRaw {
+		tm, _ := t.(map[string]any)
+		if tm["status"] == "done" {
+			name, _ := tm["name"].(string)
+			doneSet[name] = true
+		}
+	}
+
+	// First pass: prefer in-progress
+	for _, t := range tasksRaw {
+		tm, ok := t.(map[string]any)
+		if !ok {
+			continue
+		}
+		if tm["status"] == "in-progress" {
+			return PrimitiveResult{
+				"current-task": buildCurrentTask(tm, dir, pipelineState),
+			}, nil
+		}
+	}
+
+	// Second pass: first todo with deps satisfied
+	for _, t := range tasksRaw {
+		tm, ok := t.(map[string]any)
+		if !ok {
+			continue
+		}
+		if tm["status"] != "todo" {
+			continue
+		}
+		if depsOK(tm, doneSet) {
+			return PrimitiveResult{
+				"current-task": buildCurrentTask(tm, dir, pipelineState),
+			}, nil
+		}
+	}
+
+	return nil, &UnrecoverableError{Msg: "pick-task: no eligible tasks"}
+}
+
+// depsOK checks if all depends_on entries are in the done set.
+func depsOK(taskMap map[string]any, doneSet map[string]bool) bool {
+	deps, ok := taskMap["depends_on"]
+	if !ok {
+		return true
+	}
+	switch d := deps.(type) {
+	case []string:
+		for _, dep := range d {
+			if !doneSet[dep] {
+				return false
+			}
+		}
+	case []any:
+		for _, dep := range d {
+			if s, ok := dep.(string); ok && !doneSet[s] {
+				return false
+			}
+		}
+	case string:
+		if !doneSet[d] {
+			return false
+		}
+	}
+	return true
+}
+
+// buildCurrentTask assembles the current-task map with optional doc_hint.
+func buildCurrentTask(tm map[string]any, dir string, pipelineState map[string]any) map[string]any {
+	ct := map[string]any{
+		"name":   tm["name"],
+		"status": tm["status"],
+	}
+	if notes, ok := tm["notes"].(string); ok && notes != "" {
+		ct["notes"] = notes
+	}
+
+	// Try to find doc_hint
+	var docsPath string
+	if pc, ok := pipelineState["project-context"].(map[string]any); ok {
+		docsPath, _ = pc["docs_path"].(string)
+	}
+	if docsPath != "" && dir != "" {
+		name, _ := tm["name"].(string)
+		if hint := findDocSection(dir, docsPath, name); hint != "" {
+			ct["doc_hint"] = hint
+		}
+	}
+
+	return ct
+}
+
 // gitHead returns the current HEAD commit hash.
 func gitHead(dir string) string {
 	cmd := exec.Command("git", "rev-parse", "HEAD")

@@ -244,6 +244,98 @@ func TestPrimitiveSyncState_AutoRepairInvalidTaskStatus(t *testing.T) {
 	}
 }
 
+func TestPrimitivePickTask(t *testing.T) {
+	tests := []struct {
+		name     string
+		tasks    []any
+		config   map[string]any
+		wantName string
+		wantErr  bool
+	}{
+		{
+			name: "prefers in-progress over todo",
+			tasks: []any{
+				map[string]any{"name": "t1", "status": "todo"},
+				map[string]any{"name": "t2", "status": "in-progress"},
+			},
+			wantName: "t2",
+		},
+		{
+			name: "picks first todo when no in-progress",
+			tasks: []any{
+				map[string]any{"name": "t1", "status": "done"},
+				map[string]any{"name": "t2", "status": "todo"},
+				map[string]any{"name": "t3", "status": "todo"},
+			},
+			wantName: "t2",
+		},
+		{
+			name: "respects dependencies",
+			tasks: []any{
+				map[string]any{"name": "t1", "status": "todo", "depends_on": []string{"t0"}},
+				map[string]any{"name": "t2", "status": "todo"},
+			},
+			wantName: "t2",
+		},
+		{
+			name: "dependency satisfied",
+			tasks: []any{
+				map[string]any{"name": "t0", "status": "done"},
+				map[string]any{"name": "t1", "status": "todo", "depends_on": []string{"t0"}},
+			},
+			wantName: "t1",
+		},
+		{
+			name: "task override from config",
+			tasks: []any{
+				map[string]any{"name": "t1", "status": "todo"},
+				map[string]any{"name": "t2", "status": "todo"},
+			},
+			config:   map[string]any{"task": "t2"},
+			wantName: "t2",
+		},
+		{
+			name: "skips blocked and done",
+			tasks: []any{
+				map[string]any{"name": "t1", "status": "done"},
+				map[string]any{"name": "t2", "status": "blocked"},
+				map[string]any{"name": "t3", "status": "todo"},
+			},
+			wantName: "t3",
+		},
+		{
+			name: "no eligible tasks",
+			tasks: []any{
+				map[string]any{"name": "t1", "status": "done"},
+				map[string]any{"name": "t2", "status": "blocked"},
+			},
+			wantErr: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			state := map[string]any{"tasks": tt.tasks}
+			result, err := primitivePickTask(nil, "", tt.config, state)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("expected error, got nil")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			ct, ok := result["current-task"].(map[string]any)
+			if !ok {
+				t.Fatal("current-task should be a map")
+			}
+			if ct["name"] != tt.wantName {
+				t.Errorf("picked %v, want %v", ct["name"], tt.wantName)
+			}
+		})
+	}
+}
+
 func TestPrimitiveSyncState_AutoRepairBlockedWithoutReason(t *testing.T) {
 	dir := setupTestDir(t)
 
