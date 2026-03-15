@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/run.dart';
+import '../providers/project.dart';
 
 /// Tracks all runs across all projects, built from engine events.
 class RunsNotifier extends StateNotifier<List<RunInfo>> {
@@ -106,4 +107,47 @@ final runsProvider =
 final activeRunsProvider = Provider<List<RunInfo>>((ref) {
   final runs = ref.watch(runsProvider);
   return runs.where((r) => r.status == 'running').toList();
+});
+
+/// Stores engine events per run, keyed by runId.
+class RunEventsNotifier extends StateNotifier<Map<String, List<EngineEvent>>> {
+  RunEventsNotifier() : super({});
+
+  void addEvent(EngineEvent event) {
+    if (event.runId == null) return;
+    final runId = event.runId!;
+    final existing = state[runId] ?? [];
+    state = {...state, runId: [...existing, event]};
+  }
+
+  List<EngineEvent> eventsForRun(String runId) => state[runId] ?? const [];
+}
+
+final runEventsProvider =
+    StateNotifierProvider<RunEventsNotifier, Map<String, List<EngineEvent>>>((ref) {
+  return RunEventsNotifier();
+});
+
+/// Reactive events for a specific run.
+final runEventsFamily = Provider.family<List<EngineEvent>, String>((ref, runId) {
+  final allEvents = ref.watch(runEventsProvider);
+  return allEvents[runId] ?? const [];
+});
+
+/// Wires engine events from WebSocket into RunsNotifier and RunEventsNotifier.
+/// Watch this provider to activate the connection.
+final engineEventWiringProvider = Provider<void>((ref) {
+  final projectState = ref.watch(projectStateProvider.notifier);
+  final runsNotifier = ref.read(runsProvider.notifier);
+  final eventsNotifier = ref.read(runEventsProvider.notifier);
+
+  projectState.onEngineEvent = (data) {
+    final event = EngineEvent.fromJson(data);
+    runsNotifier.processEvent(event);
+    eventsNotifier.addEvent(event);
+  };
+
+  ref.onDispose(() {
+    projectState.onEngineEvent = null;
+  });
 });

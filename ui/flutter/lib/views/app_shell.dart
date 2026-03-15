@@ -56,6 +56,7 @@ class _AppShellState extends ConsumerState<AppShell> {
     final projects = ref.watch(projectListProvider);
     final selectedId = ref.watch(selectedProjectIdProvider);
     final openTabs = ref.watch(openProjectTabsProvider);
+    ref.watch(engineEventWiringProvider);
 
     return Scaffold(
       body: Column(

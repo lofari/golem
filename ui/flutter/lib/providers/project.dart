@@ -45,6 +45,7 @@ class ProjectStateNotifier extends StateNotifier<ProjectState?> {
   final String? _projectId;
   GolemWebSocket? _ws;
   void Function(Map<String, dynamic>)? _onLogAppended;
+  void Function(Map<String, dynamic>)? _onEngineEvent;
 
   ProjectStateNotifier(this._api, this._projectId) : super(null) {
     if (_projectId != null) {
@@ -55,6 +56,9 @@ class ProjectStateNotifier extends StateNotifier<ProjectState?> {
 
   set onLogAppended(void Function(Map<String, dynamic>)? cb) =>
       _onLogAppended = cb;
+
+  set onEngineEvent(void Function(Map<String, dynamic>)? cb) =>
+      _onEngineEvent = cb;
 
   Future<void> _fetch() async {
     try {
@@ -71,6 +75,9 @@ class ProjectStateNotifier extends StateNotifier<ProjectState?> {
         }
         if (data['type'] == 'log_appended') {
           _onLogAppended?.call(data);
+        }
+        if (data['type'] == 'engine_event' && data['event'] != null) {
+          _onEngineEvent?.call(data['event'] as Map<String, dynamic>);
         }
       },
     );
