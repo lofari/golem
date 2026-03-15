@@ -136,3 +136,40 @@ func TestStopAllProcesses(t *testing.T) {
 		}
 	}
 }
+
+func TestProcessGC(t *testing.T) {
+	srv := New(Config{ProcessRetention: 1 * time.Millisecond})
+
+	// Manually add a stopped process with an old StartedAt
+	mp := &managedProcess{
+		info: ProcessInfo{
+			ID:        "test-gc-proc",
+			Command:   "code",
+			Status:    "stopped",
+			StartedAt: time.Now().Add(-1 * time.Hour),
+		},
+		cancel: func() {},
+		subs:   make(map[chan []byte]struct{}),
+	}
+	srv.mu.Lock()
+	srv.processes["test-gc-proc"] = mp
+	srv.mu.Unlock()
+
+	// Verify the process exists
+	srv.mu.RLock()
+	if _, ok := srv.processes["test-gc-proc"]; !ok {
+		srv.mu.RUnlock()
+		t.Fatal("process should exist before reap")
+	}
+	srv.mu.RUnlock()
+
+	// Reap
+	srv.reapProcesses()
+
+	// Verify it's removed
+	srv.mu.RLock()
+	defer srv.mu.RUnlock()
+	if _, ok := srv.processes["test-gc-proc"]; ok {
+		t.Fatal("expected process to be reaped")
+	}
+}

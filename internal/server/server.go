@@ -13,7 +13,8 @@ const maxRequestBody = 1 << 20 // 1MB
 
 // Config holds server configuration.
 type Config struct {
-	Addr string // listen address, default ":8314"
+	Addr             string        // listen address, default ":8314"
+	ProcessRetention time.Duration // how long to keep finished processes (default 1h)
 }
 
 // Server is the golem API server.

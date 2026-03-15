@@ -109,6 +109,25 @@ func (mp *managedProcess) Unsubscribe(ch chan []byte) {
 	close(ch)
 }
 
+// reapProcesses removes finished processes older than the retention period.
+func (s *Server) reapProcesses() {
+	retention := s.cfg.ProcessRetention
+	if retention == 0 {
+		retention = 1 * time.Hour
+	}
+	cutoff := time.Now().Add(-retention)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for id, mp := range s.processes {
+		mp.mu.Lock()
+		done := mp.info.Status != "running" && mp.info.StartedAt.Before(cutoff)
+		mp.mu.Unlock()
+		if done {
+			delete(s.processes, id)
+		}
+	}
+}
+
 // StopAll cancels all running processes.
 func (s *Server) StopAll() {
 	s.mu.RLock()
@@ -264,6 +283,7 @@ func (s *Server) handleLaunchProcess(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleListProcesses(w http.ResponseWriter, r *http.Request) {
+	s.reapProcesses()
 	projID := r.PathValue("id")
 	s.mu.RLock()
 	defer s.mu.RUnlock()
