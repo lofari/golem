@@ -54,7 +54,7 @@ func TestEngine_AgenticStep(t *testing.T) {
 	}
 	bp.pipeline = &Pipeline{
 		Nodes: []PipelineNode{
-			{Step: &Step{Name: "plan", Type: StepTypeAgentic, Reads: []string{"goal"}, Writes: []string{"plan"}, Tools: []string{"semantic_search"}}},
+			{Step: &Step{Name: "plan", Type: StepTypeAgentic, Reads: []string{"goal"}, OptionalReads: []string{"_error_context"}, Writes: []string{"plan"}, Tools: []string{"semantic_search"}}},
 		},
 		StepDefs: map[string]*Step{},
 	}
@@ -196,7 +196,7 @@ func TestEngine_TransientRetry(t *testing.T) {
 	dir := setupGitRepo(t)
 	os.MkdirAll(filepath.Join(dir, ".ctx", "runs"), 0755)
 
-	step := &Step{Name: "plan", Type: StepTypeAgentic, Reads: []string{"goal"}, Writes: []string{"plan"}}
+	step := &Step{Name: "plan", Type: StepTypeAgentic, Reads: []string{"goal"}, OptionalReads: []string{"_error_context"}, Writes: []string{"plan"}}
 	bp := &Blueprint{
 		Name: "test", InitialState: []string{"goal"}, Config: map[string]any{},
 		Errors: ErrorHandlers{
