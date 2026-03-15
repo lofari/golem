@@ -157,7 +157,11 @@ func (e *Engine) emit(ev EngineEvent) {
 		ev.RunID = e.RunID
 	}
 	if e.logFile != nil {
-		data, _ := json.Marshal(ev)
+		data, err := json.Marshal(ev)
+		if err != nil {
+			log.Printf("warning: failed to marshal event: %v", err)
+			return
+		}
 		e.logFile.Write(data)
 		e.logFile.Write([]byte("\n"))
 	}
@@ -175,8 +179,14 @@ func (e *Engine) saveState() {
 		return
 	}
 	e.stateVer++
-	data, _ := json.MarshalIndent(e.state, "", "  ")
-	os.WriteFile(filepath.Join(e.runDir, fmt.Sprintf("state-%03d.json", e.stateVer)), data, 0644)
+	data, err := json.MarshalIndent(e.state, "", "  ")
+	if err != nil {
+		log.Printf("warning: failed to marshal state: %v", err)
+		return
+	}
+	if err := os.WriteFile(filepath.Join(e.runDir, fmt.Sprintf("state-%03d.json", e.stateVer)), data, 0644); err != nil {
+		log.Printf("warning: failed to write state snapshot: %v", err)
+	}
 	os.WriteFile(filepath.Join(e.runDir, "state.json"), data, 0644)
 }
 

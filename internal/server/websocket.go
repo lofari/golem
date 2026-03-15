@@ -66,7 +66,9 @@ func (s *Server) handleProcessStream(w http.ResponseWriter, r *http.Request) {
 	defer mp.Unsubscribe(ch)
 
 	// Read input from client in background
+	inputDone := make(chan struct{})
 	go func() {
+		defer close(inputDone)
 		for {
 			_, data, err := conn.Read(ctx)
 			if err != nil {
@@ -94,6 +96,7 @@ func (s *Server) handleProcessStream(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}()
+	defer func() { <-inputDone }()
 
 	// Stream output to client
 	for {
@@ -235,6 +238,11 @@ func (s *Server) handleStateWatch(w http.ResponseWriter, r *http.Request) {
 
 	// Debounce timer to avoid rapid-fire updates
 	var debounce *time.Timer
+	defer func() {
+		if debounce != nil {
+			debounce.Stop()
+		}
+	}()
 	var pendingState, pendingLog bool
 
 	for {
@@ -299,6 +307,9 @@ func (s *Server) handleStateWatch(w http.ResponseWriter, r *http.Request) {
 			pendingState = false
 			pendingLog = false
 			debounce = time.AfterFunc(200*time.Millisecond, func() {
+				if ctx.Err() != nil {
+					return
+				}
 				if captureState {
 					if state, err := golemctx.ReadState(proj.path); err == nil {
 						msg, _ := json.Marshal(WSMessage{Type: "state_changed", State: state})

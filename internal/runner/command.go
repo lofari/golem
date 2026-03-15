@@ -128,7 +128,7 @@ func WriteMCPConfig(dir string, noLSP bool) (string, error) {
 }`, golemBin, args)
 
 	configPath := filepath.Join(dir, ".ctx", "mcp_servers.json")
-	if err := os.WriteFile(configPath, []byte(config), 0644); err != nil {
+	if err := os.WriteFile(configPath, []byte(config), 0600); err != nil {
 		return "", fmt.Errorf("writing mcp config: %w", err)
 	}
 	return configPath, nil
@@ -145,7 +145,10 @@ func (c *ClaudeRunner) buildCommand(dir string, claudeArgs []string, toolsEnv ..
 		tools = tools + "," + strings.Join(c.SandboxTools, ",")
 	}
 
-	homeDir, _ := os.UserHomeDir()
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return "claude", claudeArgs // cannot build sandbox without home dir
+	}
 	wardenArgs := []string{
 		"run",
 		"--network",

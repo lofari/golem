@@ -190,7 +190,7 @@ func SetValue(path, key, value string) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, data, 0644)
+	return os.WriteFile(path, data, 0600)
 }
 
 func parseValue(s string) interface{} {
@@ -251,7 +251,7 @@ func GetValue(cfg Config, key string) (string, error) {
 // PrintConfig writes all config values to w.
 func PrintConfig(w io.Writer, cfg Config) {
 	fmt.Fprintf(w, "max-iterations: %d\n", cfg.MaxIterations)
-	fmt.Fprintf(w, "max-turns: %d\n", cfg.MaxToolCalls)
+	fmt.Fprintf(w, "max-tool-calls: %d\n", cfg.MaxToolCalls)
 	fmt.Fprintf(w, "verbose: %v\n", cfg.Verbose)
 	fmt.Fprintf(w, "sandbox: %v\n", cfg.Sandbox)
 	if len(cfg.SandboxTools) > 0 {
@@ -318,5 +318,22 @@ func WriteFile(path string, cfg Config) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, data, 0644)
+	return os.WriteFile(path, data, 0600)
+}
+
+// Validate checks config values for sanity.
+func Validate(cfg Config) error {
+	if cfg.MaxIterations < 1 || cfg.MaxIterations > 1000 {
+		return fmt.Errorf("max-iterations must be 1–1000, got %d", cfg.MaxIterations)
+	}
+	if cfg.MaxToolCalls < 1 {
+		return fmt.Errorf("max-tool-calls must be positive, got %d", cfg.MaxToolCalls)
+	}
+	if cfg.Parallel < 1 {
+		return fmt.Errorf("parallel must be >= 1, got %d", cfg.Parallel)
+	}
+	if cfg.ContextMapLimit < 0 {
+		return fmt.Errorf("context-map-limit must be non-negative, got %d", cfg.ContextMapLimit)
+	}
+	return nil
 }
