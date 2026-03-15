@@ -73,6 +73,46 @@ func TestAuthMiddleware_TokenInQueryParam(t *testing.T) {
 	}
 }
 
+func TestCORS_RestrictsOrigin(t *testing.T) {
+	srv := New(Config{})
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	req, _ := http.NewRequest("GET", ts.URL+"/api/health", nil)
+	req.Header.Set("Origin", "http://evil.com")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	got := resp.Header.Get("Access-Control-Allow-Origin")
+	if got != "" {
+		t.Fatalf("expected no Access-Control-Allow-Origin for evil.com, got %q", got)
+	}
+}
+
+func TestCORS_AllowsLocalhost(t *testing.T) {
+	srv := New(Config{})
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	req, _ := http.NewRequest("GET", ts.URL+"/api/health", nil)
+	req.Header.Set("Origin", "http://localhost:8314")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	got := resp.Header.Get("Access-Control-Allow-Origin")
+	if got != "http://localhost:8314" {
+		t.Fatalf("expected http://localhost:8314, got %q", got)
+	}
+}
+
 func TestGenerateToken(t *testing.T) {
 	token, err := GenerateToken()
 	if err != nil {
