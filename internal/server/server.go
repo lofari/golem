@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"net"
 	"net/http"
@@ -102,6 +103,15 @@ func (s *Server) Serve(ln net.Listener) error {
 		IdleTimeout:  120 * time.Second,
 	}
 	return s.httpServer.Serve(ln)
+}
+
+// Shutdown gracefully shuts down the server.
+func (s *Server) Shutdown(ctx context.Context) error {
+	s.StopAll()
+	if s.httpServer != nil {
+		return s.httpServer.Shutdown(ctx)
+	}
+	return nil
 }
 
 func cors(next http.Handler) http.Handler {

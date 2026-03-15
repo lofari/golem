@@ -109,6 +109,19 @@ func (mp *managedProcess) Unsubscribe(ch chan []byte) {
 	close(ch)
 }
 
+// StopAll cancels all running processes.
+func (s *Server) StopAll() {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, mp := range s.processes {
+		mp.mu.Lock()
+		if mp.info.Status == "running" {
+			mp.cancel()
+		}
+		mp.mu.Unlock()
+	}
+}
+
 func (s *Server) launchProcess(proj *project, req LaunchRequest) (*managedProcess, error) {
 	validCommands := map[string]bool{"code": true, "review": true, "qa": true, "plan": true}
 	if !validCommands[req.Command] {
