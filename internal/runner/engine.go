@@ -375,26 +375,31 @@ func (e *Engine) execBuiltinStep(ctx context.Context, step *Step) error {
 		return err
 	}
 
-	// Store results: if step declares writes, store result under those keys.
-	// Primitives like git-setup write engine-managed keys (branch, base) directly.
+	e.storeBuiltinResult(step, result)
+	return nil
+}
+
+// storeBuiltinResult writes a PrimitiveResult into pipeline state based on the step's Writes.
+// If the result contains a key matching a write key name, that specific value is stored.
+// Otherwise, the full result map is stored (backward-compatible with single-key builtins).
+func (e *Engine) storeBuiltinResult(step *Step, result PrimitiveResult) {
 	if len(step.Writes) > 0 {
 		for _, key := range step.Writes {
 			if reservedKeys[key] {
-				// Reserved keys (branch, base) come from the result directly
 				if val, ok := result[key]; ok {
 					e.state[key] = val
 				}
+			} else if val, ok := result[key]; ok {
+				e.state[key] = val
 			} else {
 				e.state[key] = map[string]any(result)
 			}
 		}
 	} else {
-		// No declared writes — store flat (e.g., git-setup writes branch/base)
 		for k, v := range result {
 			e.state[k] = v
 		}
 	}
-	return nil
 }
 
 func (e *Engine) execShellStep(ctx context.Context, step *Step) error {

@@ -545,3 +545,88 @@ func TestEngine_Integration_BuildFeatureLoop(t *testing.T) {
 		t.Errorf("final verdict = %q, want approved", verdict)
 	}
 }
+
+func TestExecBuiltinStep_MultiKeyResult(t *testing.T) {
+	bp := &Blueprint{
+		pipeline: &Pipeline{
+			StepDefs: map[string]*Step{},
+			Nodes:    nil,
+		},
+	}
+	e := &Engine{
+		cfg:   EngineConfig{Blueprint: bp},
+		state: map[string]any{},
+	}
+
+	result := PrimitiveResult{
+		"project-context": map[string]any{"phase": "building"},
+		"tasks":           []any{map[string]any{"name": "task1", "status": "todo"}},
+		"log-context":     map[string]any{"iteration": 1},
+	}
+
+	step := &Step{
+		Name:   "test-multi-key",
+		Type:   StepTypeBuiltin,
+		Writes: []string{"project-context", "tasks", "log-context"},
+	}
+
+	e.storeBuiltinResult(step, result)
+
+	pc, ok := e.state["project-context"].(map[string]any)
+	if !ok {
+		t.Fatal("project-context should be a map")
+	}
+	if pc["phase"] != "building" {
+		t.Errorf("project-context.phase = %v, want building", pc["phase"])
+	}
+
+	tasks, ok := e.state["tasks"].([]any)
+	if !ok {
+		t.Fatal("tasks should be a slice")
+	}
+	if len(tasks) != 1 {
+		t.Errorf("tasks len = %d, want 1", len(tasks))
+	}
+
+	lc, ok := e.state["log-context"].(map[string]any)
+	if !ok {
+		t.Fatal("log-context should be a map")
+	}
+	if lc["iteration"] != 1 {
+		t.Errorf("log-context.iteration = %v, want 1", lc["iteration"])
+	}
+}
+
+func TestExecBuiltinStep_SingleKeyFallback(t *testing.T) {
+	bp := &Blueprint{
+		pipeline: &Pipeline{
+			StepDefs: map[string]*Step{},
+			Nodes:    nil,
+		},
+	}
+	e := &Engine{
+		cfg:   EngineConfig{Blueprint: bp},
+		state: map[string]any{},
+	}
+
+	result := PrimitiveResult{
+		"status": "pass",
+		"output": "all tests passed",
+	}
+
+	step := &Step{
+		Name:   "run-tests",
+		Type:   StepTypeBuiltin,
+		Writes: []string{"test-results"},
+	}
+
+	e.storeBuiltinResult(step, result)
+
+	tr, ok := e.state["test-results"].(map[string]any)
+	if !ok {
+		t.Fatal("test-results should be a map")
+	}
+	if tr["status"] != "pass" {
+		t.Errorf("test-results.status = %v, want pass", tr["status"])
+	}
+}
