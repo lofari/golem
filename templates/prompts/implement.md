@@ -15,3 +15,6 @@ Write session-output.json containing:
 {"test-results": {"status": "pass|fail", "summary": "..."}}
 
 Note: Do NOT write a "code" key — the engine detects changed files automatically via git diff.
+
+## Previous Error Context
+${_error_context}

@@ -1,5 +1,0 @@
-{"type":"step-start","step":"plan","iteration":1,"agent":"fix-bug"}
-{"type":"step-end","step":"plan","state-version":1}
-{"type":"step-start","step":"research","iteration":2,"agent":"fix-bug"}
-{"type":"error","step":"research","error-type":"unrecoverable","iteration":2}
-{"type":"agent-done","agent":"fix-bug","outcome":"halted","total-steps":2}

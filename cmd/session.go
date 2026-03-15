@@ -10,7 +10,7 @@ import (
 var sessionCmd = &cobra.Command{
 	Use:   "session",
 	Short: "Run a single Claude session with a prompt file",
-	Long:  "Spawns one Claude session. Used by golem-dsl as a session adapter.",
+	Long:  "Spawns one Claude session.",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		promptFile, _ := cmd.Flags().GetString("prompt")
 		if promptFile == "" {

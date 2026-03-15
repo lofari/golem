@@ -10,3 +10,6 @@ ${goal}
 
 When finished, write a session-output.json file containing:
 {"plan": [{"step": 1, "desc": "..."}, {"step": 2, "desc": "..."}, ...]}
+
+## Previous Error Context
+${_error_context}

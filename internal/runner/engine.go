@@ -367,6 +367,16 @@ func (e *Engine) execBuiltinStep(ctx context.Context, step *Step) error {
 		result, err = primitiveCITests(ctx, e.cfg.Dir, e.cfg.Config, e.state)
 	case "create-pr":
 		result, err = primitiveCreatePR(ctx, e.cfg.Dir, e.cfg.Config, e.state)
+	case "init-state":
+		result, err = primitiveInitState(ctx, e.cfg.Dir, e.cfg.Config, e.state)
+	case "sync-state":
+		result, err = primitiveSyncState(ctx, e.cfg.Dir, e.cfg.Config, e.state)
+	case "pick-task":
+		result, err = primitivePickTask(ctx, e.cfg.Dir, e.cfg.Config, e.state)
+	case "build-context":
+		result, err = primitiveBuildContext(ctx, e.cfg.Dir, e.cfg.Config, e.state)
+	case "strategy-eval":
+		result, err = primitiveStrategyEval(ctx, e.cfg.Dir, e.cfg.Config, e.state)
 	default:
 		return fmt.Errorf("unknown builtin primitive: %s", step.Name)
 	}
@@ -375,26 +385,31 @@ func (e *Engine) execBuiltinStep(ctx context.Context, step *Step) error {
 		return err
 	}
 
-	// Store results: if step declares writes, store result under those keys.
-	// Primitives like git-setup write engine-managed keys (branch, base) directly.
+	e.storeBuiltinResult(step, result)
+	return nil
+}
+
+// storeBuiltinResult writes a PrimitiveResult into pipeline state based on the step's Writes.
+// If the result contains a key matching a write key name, that specific value is stored.
+// Otherwise, the full result map is stored (backward-compatible with single-key builtins).
+func (e *Engine) storeBuiltinResult(step *Step, result PrimitiveResult) {
 	if len(step.Writes) > 0 {
 		for _, key := range step.Writes {
 			if reservedKeys[key] {
-				// Reserved keys (branch, base) come from the result directly
 				if val, ok := result[key]; ok {
 					e.state[key] = val
 				}
+			} else if val, ok := result[key]; ok {
+				e.state[key] = val
 			} else {
 				e.state[key] = map[string]any(result)
 			}
 		}
 	} else {
-		// No declared writes — store flat (e.g., git-setup writes branch/base)
 		for k, v := range result {
 			e.state[k] = v
 		}
 	}
-	return nil
 }
 
 func (e *Engine) execShellStep(ctx context.Context, step *Step) error {
@@ -439,9 +454,19 @@ func (e *Engine) execControlFlow(ctx context.Context, cf *ControlFlowNode) error
 	}
 }
 
+func (e *Engine) evalPredicate(name string, state map[string]any, config map[string]any) bool {
+	if e.cfg.Blueprint != nil && e.cfg.Blueprint.parsedPredicates != nil {
+		if expr, ok := e.cfg.Blueprint.parsedPredicates[name]; ok {
+			return expr.Eval(state, config)
+		}
+	}
+	result, _ := evalBuiltinPredicate(name, state, config)
+	return result
+}
+
 func (e *Engine) execWhile(ctx context.Context, cf *ControlFlowNode) error {
 	for i := 0; i < cf.Max; i++ {
-		if !EvalPredicate(cf.Predicate, e.state, e.cfg.Config) {
+		if !e.evalPredicate(cf.Predicate, e.state, e.cfg.Config) {
 			e.emit(EngineEvent{Type: "loop-exit", Predicate: cf.Predicate, Reason: "false"})
 			return nil
 		}
@@ -456,7 +481,7 @@ func (e *Engine) execWhile(ctx context.Context, cf *ControlFlowNode) error {
 }
 
 func (e *Engine) execWhen(ctx context.Context, cf *ControlFlowNode) error {
-	if !EvalPredicate(cf.Predicate, e.state, e.cfg.Config) {
+	if !e.evalPredicate(cf.Predicate, e.state, e.cfg.Config) {
 		e.emit(EngineEvent{Type: "conditional-skip", Predicate: cf.Predicate})
 		return nil
 	}
@@ -464,7 +489,7 @@ func (e *Engine) execWhen(ctx context.Context, cf *ControlFlowNode) error {
 }
 
 func (e *Engine) execIf(ctx context.Context, cf *ControlFlowNode) error {
-	if EvalPredicate(cf.Predicate, e.state, e.cfg.Config) {
+	if e.evalPredicate(cf.Predicate, e.state, e.cfg.Config) {
 		return e.execSubNodes(ctx, cf.ThenNodes, cf.ThenRefs, cf.InlineSteps, "if block")
 	}
 	return e.execSubNodes(ctx, cf.ElseNodes, cf.ElseRefs, cf.InlineSteps, "if block")
@@ -529,6 +554,57 @@ func (e *Engine) resolveStepRef(ref string, inlineSteps []Step) *Step {
 	return nil
 }
 
+// Built-in error handler defaults.
+var defaultErrorHandlers = map[string]ErrorHandler{
+	"transient":          {Action: "retry", Max: 3},
+	"malformed-output":   {Action: "re-run", Max: 2},
+	"unrecoverable":      {Action: "halt"},
+	"contract-violation": {Action: "halt"},
+}
+
+// resolveErrorHandler returns the handler for a given error type using the priority chain:
+// step-level > blueprint-level > built-in defaults.
+func resolveErrorHandler(stepErrs *StepErrors, bpErrs *ErrorHandlers, errType string) ErrorHandler {
+	// Step-level
+	if stepErrs != nil {
+		switch errType {
+		case "transient":
+			if stepErrs.Transient != nil {
+				return *stepErrs.Transient
+			}
+		case "malformed-output":
+			if stepErrs.MalformedOutput != nil {
+				return *stepErrs.MalformedOutput
+			}
+		case "contract-violation":
+			if stepErrs.ContractViolation != nil {
+				return *stepErrs.ContractViolation
+			}
+		}
+	}
+
+	// Blueprint-level
+	if bpErrs != nil {
+		switch errType {
+		case "transient":
+			if bpErrs.Transient.Action != "" {
+				return bpErrs.Transient
+			}
+		case "malformed-output":
+			if bpErrs.MalformedOutput.Action != "" {
+				return bpErrs.MalformedOutput
+			}
+		case "contract-violation":
+			if bpErrs.ContractViolation.Action != "" {
+				return bpErrs.ContractViolation
+			}
+		}
+	}
+
+	// Built-in default
+	return defaultErrorHandlers[errType]
+}
+
 func (e *Engine) handleError(ctx context.Context, step *Step, err error) error {
 	var transient *TransientError
 	var unrecoverable *UnrecoverableError
@@ -536,42 +612,37 @@ func (e *Engine) handleError(ctx context.Context, step *Step, err error) error {
 
 	switch {
 	case errors.As(err, &unrecoverable):
-		e.emit(EngineEvent{Type: "error-occurred", Step: step.Name, ErrorType: "unrecoverable", Action: "halt"})
+		handler := resolveErrorHandler(step.StepErrors, &e.cfg.Blueprint.Errors, "unrecoverable")
+		e.emit(EngineEvent{Type: "error-occurred", Step: step.Name, ErrorType: "unrecoverable", Action: handler.Action})
 		return err
 
 	case errors.As(err, &malformed):
-		handler := e.cfg.Blueprint.Errors.MalformedOutput
-		if handler.Action == "" {
-			handler.Action = "halt"
-		}
+		handler := resolveErrorHandler(step.StepErrors, &e.cfg.Blueprint.Errors, "malformed-output")
 		return e.handleMalformedOutput(ctx, step, malformed, handler)
 
 	case errors.As(err, &transient):
-		handler := e.cfg.Blueprint.Errors.Transient
-		if handler.Action == "" {
-			handler.Action = "halt"
-		}
-		return e.handleTransient(ctx, step, handler)
+		handler := resolveErrorHandler(step.StepErrors, &e.cfg.Blueprint.Errors, "transient")
+		return e.handleTransient(ctx, step, transient, handler)
 
 	default:
-		handler := e.cfg.Blueprint.Errors.Transient
-		if handler.Action == "" {
-			handler.Action = "halt"
-		}
-		return e.handleTransient(ctx, step, handler)
+		handler := resolveErrorHandler(step.StepErrors, &e.cfg.Blueprint.Errors, "transient")
+		return e.handleTransient(ctx, step, &TransientError{Msg: err.Error()}, handler)
 	}
 }
 
-func (e *Engine) handleTransient(ctx context.Context, step *Step, handler ErrorHandler) error {
+func (e *Engine) handleTransient(ctx context.Context, step *Step, transientErr *TransientError, handler ErrorHandler) error {
 	if handler.Action != "retry" || handler.Max <= 0 {
 		return fmt.Errorf("step %q failed (transient, no retry configured)", step.Name)
 	}
 	for attempt := 1; attempt <= handler.Max; attempt++ {
 		e.emit(EngineEvent{Type: "error-retry", Step: step.Name, ErrorType: "transient", Attempt: attempt, Action: "retry"})
+		e.state["_error_context"] = fmt.Sprintf("Previous error (attempt %d/%d): %s", attempt, handler.Max, transientErr.Msg)
 		if err := e.runStep(ctx, step); err == nil {
+			delete(e.state, "_error_context")
 			return nil
 		}
 	}
+	delete(e.state, "_error_context")
 	return fmt.Errorf("step %q failed after %d retries", step.Name, handler.Max)
 }
 
@@ -581,14 +652,16 @@ func (e *Engine) handleMalformedOutput(ctx context.Context, step *Step, malforme
 	}
 	for attempt := 1; attempt <= handler.Max; attempt++ {
 		e.emit(EngineEvent{Type: "error-retry", Step: step.Name, ErrorType: "malformed-output", Attempt: attempt, Action: "re-run"})
+		errCtx := fmt.Sprintf("Previous error (attempt %d/%d): %s", attempt, handler.Max, malformed.Msg)
 		if handler.Hint != "" {
-			e.state["_hint"] = handler.Hint
+			errCtx += "\nHint: " + handler.Hint
 		}
+		e.state["_error_context"] = errCtx
 		if err := e.runStep(ctx, step); err == nil {
-			delete(e.state, "_hint")
+			delete(e.state, "_error_context")
 			return nil
 		}
 	}
-	delete(e.state, "_hint")
+	delete(e.state, "_error_context")
 	return fmt.Errorf("step %q: malformed output after %d re-runs: %s", step.Name, handler.Max, malformed.Msg)
 }

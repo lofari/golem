@@ -54,7 +54,7 @@ func TestEngine_AgenticStep(t *testing.T) {
 	}
 	bp.pipeline = &Pipeline{
 		Nodes: []PipelineNode{
-			{Step: &Step{Name: "plan", Type: StepTypeAgentic, Reads: []string{"goal"}, Writes: []string{"plan"}, Tools: []string{"semantic_search"}}},
+			{Step: &Step{Name: "plan", Type: StepTypeAgentic, Reads: []string{"goal"}, OptionalReads: []string{"_error_context"}, Writes: []string{"plan"}, Tools: []string{"semantic_search"}}},
 		},
 		StepDefs: map[string]*Step{},
 	}
@@ -196,7 +196,7 @@ func TestEngine_TransientRetry(t *testing.T) {
 	dir := setupGitRepo(t)
 	os.MkdirAll(filepath.Join(dir, ".ctx", "runs"), 0755)
 
-	step := &Step{Name: "plan", Type: StepTypeAgentic, Reads: []string{"goal"}, Writes: []string{"plan"}}
+	step := &Step{Name: "plan", Type: StepTypeAgentic, Reads: []string{"goal"}, OptionalReads: []string{"_error_context"}, Writes: []string{"plan"}}
 	bp := &Blueprint{
 		Name: "test", InitialState: []string{"goal"}, Config: map[string]any{},
 		Errors: ErrorHandlers{
@@ -425,6 +425,77 @@ tasks: []
 	}
 }
 
+func TestResolveHandler_Priority(t *testing.T) {
+	stepHandler := ErrorHandler{Action: "retry", Max: 5}
+	bpHandler := ErrorHandler{Action: "retry", Max: 2}
+
+	// Step-level wins over blueprint-level
+	got := resolveErrorHandler(
+		&StepErrors{Transient: &stepHandler},
+		&ErrorHandlers{Transient: bpHandler},
+		"transient",
+	)
+	if got.Max != 5 {
+		t.Errorf("expected step handler max=5, got %d", got.Max)
+	}
+
+	// Blueprint-level used when step has no handler
+	got = resolveErrorHandler(
+		nil,
+		&ErrorHandlers{Transient: bpHandler},
+		"transient",
+	)
+	if got.Max != 2 {
+		t.Errorf("expected blueprint handler max=2, got %d", got.Max)
+	}
+
+	// Built-in default when neither defines handler
+	got = resolveErrorHandler(nil, &ErrorHandlers{}, "transient")
+	if got.Action != "retry" || got.Max != 3 {
+		t.Errorf("expected default retry/3, got %s/%d", got.Action, got.Max)
+	}
+
+	// Built-in default for malformed-output
+	got = resolveErrorHandler(nil, &ErrorHandlers{}, "malformed-output")
+	if got.Action != "re-run" || got.Max != 2 {
+		t.Errorf("expected default re-run/2, got %s/%d", got.Action, got.Max)
+	}
+
+	// Unrecoverable always halts
+	got = resolveErrorHandler(nil, &ErrorHandlers{}, "unrecoverable")
+	if got.Action != "halt" {
+		t.Errorf("expected default halt, got %s", got.Action)
+	}
+}
+
+func TestEngine_EvalPredicate_Custom(t *testing.T) {
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, ".ctx", "runs"), 0755)
+
+	bp := &Blueprint{
+		Predicates: map[string]string{
+			"custom-check": `test-results.status == "fail"`,
+		},
+		pipeline: &Pipeline{StepDefs: map[string]*Step{}},
+	}
+	// Parse predicates to populate parsedPredicates cache
+	parsed, _ := parsePredicates(bp.Predicates)
+	bp.parsedPredicates = parsed
+
+	e := NewEngine(EngineConfig{Dir: dir, AgentName: "test", Goal: "test", Blueprint: bp})
+
+	state := map[string]any{"test-results": map[string]any{"status": "fail"}}
+	if !e.evalPredicate("custom-check", state, nil) {
+		t.Error("custom predicate should match")
+	}
+	if e.evalPredicate("custom-check", map[string]any{}, nil) {
+		t.Error("custom predicate should not match on empty state")
+	}
+	if !e.evalPredicate("needs-work", map[string]any{"review-feedback": map[string]any{"verdict": "needs-work"}}, nil) {
+		t.Error("built-in predicate should still work")
+	}
+}
+
 func TestEngine_Integration_BuildFeatureLoop(t *testing.T) {
 	dir := setupGitRepo(t)
 	os.MkdirAll(filepath.Join(dir, ".ctx", "runs"), 0755)
@@ -472,5 +543,90 @@ func TestEngine_Integration_BuildFeatureLoop(t *testing.T) {
 	verdict := getNestedString(state, "review-feedback", "verdict")
 	if verdict != "approved" {
 		t.Errorf("final verdict = %q, want approved", verdict)
+	}
+}
+
+func TestExecBuiltinStep_MultiKeyResult(t *testing.T) {
+	bp := &Blueprint{
+		pipeline: &Pipeline{
+			StepDefs: map[string]*Step{},
+			Nodes:    nil,
+		},
+	}
+	e := &Engine{
+		cfg:   EngineConfig{Blueprint: bp},
+		state: map[string]any{},
+	}
+
+	result := PrimitiveResult{
+		"project-context": map[string]any{"phase": "building"},
+		"tasks":           []any{map[string]any{"name": "task1", "status": "todo"}},
+		"log-context":     map[string]any{"iteration": 1},
+	}
+
+	step := &Step{
+		Name:   "test-multi-key",
+		Type:   StepTypeBuiltin,
+		Writes: []string{"project-context", "tasks", "log-context"},
+	}
+
+	e.storeBuiltinResult(step, result)
+
+	pc, ok := e.state["project-context"].(map[string]any)
+	if !ok {
+		t.Fatal("project-context should be a map")
+	}
+	if pc["phase"] != "building" {
+		t.Errorf("project-context.phase = %v, want building", pc["phase"])
+	}
+
+	tasks, ok := e.state["tasks"].([]any)
+	if !ok {
+		t.Fatal("tasks should be a slice")
+	}
+	if len(tasks) != 1 {
+		t.Errorf("tasks len = %d, want 1", len(tasks))
+	}
+
+	lc, ok := e.state["log-context"].(map[string]any)
+	if !ok {
+		t.Fatal("log-context should be a map")
+	}
+	if lc["iteration"] != 1 {
+		t.Errorf("log-context.iteration = %v, want 1", lc["iteration"])
+	}
+}
+
+func TestExecBuiltinStep_SingleKeyFallback(t *testing.T) {
+	bp := &Blueprint{
+		pipeline: &Pipeline{
+			StepDefs: map[string]*Step{},
+			Nodes:    nil,
+		},
+	}
+	e := &Engine{
+		cfg:   EngineConfig{Blueprint: bp},
+		state: map[string]any{},
+	}
+
+	result := PrimitiveResult{
+		"status": "pass",
+		"output": "all tests passed",
+	}
+
+	step := &Step{
+		Name:   "run-tests",
+		Type:   StepTypeBuiltin,
+		Writes: []string{"test-results"},
+	}
+
+	e.storeBuiltinResult(step, result)
+
+	tr, ok := e.state["test-results"].(map[string]any)
+	if !ok {
+		t.Fatal("test-results should be a map")
+	}
+	if tr["status"] != "pass" {
+		t.Errorf("test-results.status = %v, want pass", tr["status"])
 	}
 }

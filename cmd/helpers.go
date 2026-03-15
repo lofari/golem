@@ -42,7 +42,7 @@ func addAgentFlags(cmd *cobra.Command) {
 		cmd.Flags().String("agent", "", "agent to run (e.g., build-feature, fix-bug, one-shot)")
 	}
 	if cmd.Flags().Lookup("engine") == nil {
-		cmd.Flags().String("engine", "", "execution engine: go (legacy builder), blueprint (YAML pipeline), dsl")
+		cmd.Flags().String("engine", "", "execution engine: go (legacy builder), blueprint (YAML pipeline)")
 	}
 }
 

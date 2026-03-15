@@ -16,3 +16,6 @@ ${lint-results}
 
 Write session-output.json containing:
 {"review-feedback": {"verdict": "approved|needs-work", "comments": "..."}}
+
+## Previous Error Context
+${_error_context}

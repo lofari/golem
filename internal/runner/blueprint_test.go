@@ -4,6 +4,8 @@ import (
 	"os"
 	"strings"
 	"testing"
+
+	"github.com/lofari/golem/templates"
 )
 
 func TestParseBlueprint_ValidAgent(t *testing.T) {
@@ -245,5 +247,65 @@ func TestRenderTemplate_ConfigVars(t *testing.T) {
 	}
 	if !strings.Contains(result, "golangci-lint run") {
 		t.Errorf("config var not replaced, got: %s", result)
+	}
+}
+
+func TestParseBlueprint_CustomPredicates(t *testing.T) {
+	data := []byte(`
+name: test
+initial-state: [goal]
+predicates:
+  custom-pred: test-results.status == "fail"
+  high-coverage: test-results.coverage > 80
+steps:
+  - plan:
+      type: agentic
+      reads: [goal]
+      writes: [plan]
+`)
+	bp, err := ParseBlueprint(data)
+	if err != nil {
+		t.Fatalf("ParseBlueprint error: %v", err)
+	}
+	if len(bp.Predicates) != 2 {
+		t.Fatalf("expected 2 predicates, got %d", len(bp.Predicates))
+	}
+	if bp.Predicates["custom-pred"] != `test-results.status == "fail"` {
+		t.Errorf("unexpected predicate expr: %s", bp.Predicates["custom-pred"])
+	}
+}
+
+func TestParseBlueprint_InvalidPredicateExpr(t *testing.T) {
+	data := []byte(`
+name: test
+initial-state: [goal]
+predicates:
+  bad-pred: no-operator-here
+steps:
+  - plan:
+      type: agentic
+      reads: [goal]
+      writes: [plan]
+`)
+	_, err := ParseBlueprint(data)
+	if err == nil {
+		t.Fatal("expected error for invalid predicate expression")
+	}
+}
+
+func TestParseBuilderBlueprint(t *testing.T) {
+	data, err := templates.FS.ReadFile("agents/builder.yaml")
+	if err != nil {
+		t.Fatalf("reading builder.yaml: %v", err)
+	}
+	bp, err := ParseBlueprint(data)
+	if err != nil {
+		t.Fatalf("parsing builder.yaml: %v", err)
+	}
+	if err := bp.ValidateContracts(); err != nil {
+		t.Fatalf("contract validation: %v", err)
+	}
+	if bp.Name != "builder" {
+		t.Errorf("name = %q, want builder", bp.Name)
 	}
 }

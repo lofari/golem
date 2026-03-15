@@ -13,3 +13,6 @@ ${code}
 
 Write session-output.json containing:
 {"reflection": {"issues": [...], "suggestions": [...]}}
+
+## Previous Error Context
+${_error_context}

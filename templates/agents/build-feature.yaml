@@ -15,13 +15,14 @@ steps:
   - plan:
       type: agentic
       reads: [goal]
+      optional-reads: [_error_context]
       writes: [plan]
       tools: [semantic_search, find_callers, find_dependencies, find_co_changed]
 
   - implement:
       type: agentic
       reads: [goal, plan]
-      optional-reads: [reflection, review-feedback, lint-results, test-results]
+      optional-reads: [_error_context, reflection, review-feedback, lint-results, test-results]
       writes: [code, test-results]
       tools: [semantic_search, find_callers, find_dependencies, find_dependents,
               find_co_changed, find_execution_failures,
@@ -40,7 +41,7 @@ steps:
   - review:
       type: agentic
       reads: [code, test-results]
-      optional-reads: [lint-results]
+      optional-reads: [_error_context, lint-results]
       writes: [review-feedback]
       tools: [semantic_search, find_callers, find_dependencies]
 
