@@ -142,7 +142,7 @@ func (s *Server) StopAll() {
 }
 
 func (s *Server) launchProcess(proj *project, req LaunchRequest) (*managedProcess, error) {
-	validCommands := map[string]bool{"code": true, "review": true, "qa": true, "plan": true}
+	validCommands := map[string]bool{"code": true, "review": true, "qa": true, "plan": true, "setup": true}
 	if !validCommands[req.Command] {
 		return nil, fmt.Errorf("invalid command: %q", req.Command)
 	}
