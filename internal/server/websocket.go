@@ -131,6 +131,8 @@ func (s *Server) handleProcessStream(w http.ResponseWriter, r *http.Request) {
 }
 
 // tailLogJSON reads new NDJSON lines from path starting at offset.
+// Only advances offset past lines that are valid JSON; a partial
+// trailing line is left for the next call.
 func tailLogJSON(path string, offset int64) ([]json.RawMessage, int64) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -141,23 +143,28 @@ func tailLogJSON(path string, offset int64) ([]json.RawMessage, int64) {
 	if err != nil || info.Size() <= offset {
 		return nil, offset
 	}
-	f.Seek(offset, 0)
+	if _, err := f.Seek(offset, 0); err != nil {
+		return nil, offset
+	}
 	var events []json.RawMessage
-	var bytesRead int64
+	var committed int64
 	scanner := bufio.NewScanner(f)
 	for scanner.Scan() {
 		line := scanner.Bytes()
-		bytesRead += int64(len(line)) + 1
+		lineLen := int64(len(line)) + 1 // +1 for newline
 		if len(line) == 0 {
+			committed += lineLen
 			continue
 		}
 		raw := make(json.RawMessage, len(line))
 		copy(raw, line)
 		if json.Valid(raw) {
 			events = append(events, raw)
+			committed += lineLen
 		}
+		// Invalid JSON (partial line) — don't advance offset
 	}
-	return events, offset + bytesRead
+	return events, offset + committed
 }
 
 func (s *Server) handleStateWatch(w http.ResponseWriter, r *http.Request) {
@@ -194,7 +201,7 @@ func (s *Server) handleStateWatch(w http.ResponseWriter, r *http.Request) {
 	watcher.Add(ctxDir)
 
 	// Runs directory watching
-	runsDir := filepath.Join(proj.path, ".ctx", "runs")
+	runsDir, _ := filepath.Abs(filepath.Join(proj.path, ".ctx", "runs"))
 	runsWatched := false
 	logOffsets := make(map[string]int64)
 
@@ -214,7 +221,11 @@ func (s *Server) handleStateWatch(w http.ResponseWriter, r *http.Request) {
 		for _, e := range entries {
 			if e.IsDir() {
 				subDir := filepath.Join(runsDir, e.Name())
-				watcher.Add(subDir)
+				logPath := filepath.Join(subDir, "log.json")
+				if _, known := logOffsets[logPath]; !known {
+					watcher.Add(subDir)
+					logOffsets[logPath] = 0
+				}
 			}
 		}
 	}
@@ -257,9 +268,7 @@ func (s *Server) handleStateWatch(w http.ResponseWriter, r *http.Request) {
 				events, newOffset := tailLogJSON(absPath, offset)
 				logOffsets[absPath] = newOffset
 				for _, ev := range events {
-					var parsed interface{}
-					json.Unmarshal(ev, &parsed)
-					msg, _ := json.Marshal(WSMessage{Type: "engine_event", Event: parsed})
+					msg, _ := json.Marshal(WSMessage{Type: "engine_event", Event: ev})
 					conn.Write(ctx, websocket.MessageText, msg)
 				}
 				continue
@@ -283,19 +292,24 @@ func (s *Server) handleStateWatch(w http.ResponseWriter, r *http.Request) {
 				pendingLog = true
 			}
 
-			// Debounce: wait 200ms for writes to settle
+			// Debounce: wait 200ms for writes to settle.
+			// Capture and clear flags before spawning the goroutine
+			// to avoid a data race between the event loop and AfterFunc.
 			if debounce != nil {
 				debounce.Stop()
 			}
+			captureState := pendingState
+			captureLog := pendingLog
+			pendingState = false
+			pendingLog = false
 			debounce = time.AfterFunc(200*time.Millisecond, func() {
-				if pendingState {
+				if captureState {
 					if state, err := golemctx.ReadState(proj.path); err == nil {
 						msg, _ := json.Marshal(WSMessage{Type: "state_changed", State: state})
 						conn.Write(ctx, websocket.MessageText, msg)
 					}
-					pendingState = false
 				}
-				if pendingLog {
+				if captureLog {
 					if log, err := golemctx.ReadLog(proj.path); err == nil {
 						sessions := log.Sessions
 						if len(sessions) > 0 {
@@ -303,7 +317,6 @@ func (s *Server) handleStateWatch(w http.ResponseWriter, r *http.Request) {
 							conn.Write(ctx, websocket.MessageText, msg)
 						}
 					}
-					pendingLog = false
 				}
 			})
 		case err, ok := <-watcher.Errors:
