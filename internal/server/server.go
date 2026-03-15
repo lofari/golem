@@ -1,26 +1,32 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"net"
 	"net/http"
 	"strings"
 	"sync"
+	"time"
 )
+
+const maxRequestBody = 1 << 20 // 1MB
 
 // Config holds server configuration.
 type Config struct {
-	Addr  string // listen address, default "127.0.0.1:8314"
-	Token string // auth token; empty means no auth
+	Addr             string        // listen address, default "127.0.0.1:8314"
+	Token            string        // auth token; empty means no auth
+	ProcessRetention time.Duration // how long to keep finished processes (default 1h)
 }
 
 // Server is the golem API server.
 type Server struct {
-	cfg       Config
-	mux       *http.ServeMux
-	mu        sync.RWMutex
-	projects  map[string]*project
-	processes map[string]*managedProcess
+	cfg        Config
+	mux        *http.ServeMux
+	httpServer *http.Server
+	mu         sync.RWMutex
+	projects   map[string]*project
+	processes  map[string]*managedProcess
 }
 
 // New creates a new Server.
@@ -93,7 +99,22 @@ func (s *Server) ListenAndServe() error {
 
 // Serve starts the server on an existing listener.
 func (s *Server) Serve(ln net.Listener) error {
-	return http.Serve(ln, s.Handler())
+	s.httpServer = &http.Server{
+		Handler:      s.Handler(),
+		ReadTimeout:  30 * time.Second,
+		WriteTimeout: 60 * time.Second,
+		IdleTimeout:  120 * time.Second,
+	}
+	return s.httpServer.Serve(ln)
+}
+
+// Shutdown gracefully shuts down the server.
+func (s *Server) Shutdown(ctx context.Context) error {
+	s.StopAll()
+	if s.httpServer != nil {
+		return s.httpServer.Shutdown(ctx)
+	}
+	return nil
 }
 
 func cors(next http.Handler) http.Handler {
@@ -129,6 +150,11 @@ func isAllowedOrigin(origin string) bool {
 		}
 	}
 	return false
+}
+
+func decodeJSON(r *http.Request, v interface{}) error {
+	r.Body = http.MaxBytesReader(nil, r.Body, maxRequestBody)
+	return json.NewDecoder(r.Body).Decode(v)
 }
 
 func writeJSON(w http.ResponseWriter, status int, v interface{}) {

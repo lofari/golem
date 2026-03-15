@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/lofari/golem/internal/server"
 	"github.com/spf13/cobra"
@@ -46,7 +47,9 @@ var serveCmd = &cobra.Command{
 		select {
 		case <-ctx.Done():
 			fmt.Fprintf(os.Stderr, "\ngolem serve: shutting down\n")
-			return nil
+			shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			return srv.Shutdown(shutdownCtx)
 		case err := <-errCh:
 			return err
 		}

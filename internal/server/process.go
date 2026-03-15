@@ -2,7 +2,6 @@ package server
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
@@ -108,6 +107,38 @@ func (mp *managedProcess) Unsubscribe(ch chan []byte) {
 	delete(mp.subs, ch)
 	mp.mu.Unlock()
 	close(ch)
+}
+
+// reapProcesses removes finished processes older than the retention period.
+func (s *Server) reapProcesses() {
+	retention := s.cfg.ProcessRetention
+	if retention == 0 {
+		retention = 1 * time.Hour
+	}
+	cutoff := time.Now().Add(-retention)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for id, mp := range s.processes {
+		mp.mu.Lock()
+		done := mp.info.Status != "running" && mp.info.StartedAt.Before(cutoff)
+		mp.mu.Unlock()
+		if done {
+			delete(s.processes, id)
+		}
+	}
+}
+
+// StopAll cancels all running processes.
+func (s *Server) StopAll() {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, mp := range s.processes {
+		mp.mu.Lock()
+		if mp.info.Status == "running" {
+			mp.cancel()
+		}
+		mp.mu.Unlock()
+	}
 }
 
 func (s *Server) launchProcess(proj *project, req LaunchRequest) (*managedProcess, error) {
@@ -237,7 +268,7 @@ func (s *Server) handleLaunchProcess(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req LaunchRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := decodeJSON(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
@@ -252,6 +283,7 @@ func (s *Server) handleLaunchProcess(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleListProcesses(w http.ResponseWriter, r *http.Request) {
+	s.reapProcesses()
 	projID := r.PathValue("id")
 	s.mu.RLock()
 	defer s.mu.RUnlock()

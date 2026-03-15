@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -48,5 +49,24 @@ func TestCORSHeaders(t *testing.T) {
 	got := resp.Header.Get("Access-Control-Allow-Origin")
 	if got != "http://localhost:8314" {
 		t.Fatalf("expected CORS origin http://localhost:8314, got %q", got)
+	}
+}
+
+func TestRequestBodySizeLimit(t *testing.T) {
+	srv := New(Config{})
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	// Create a valid JSON body larger than 1MB
+	padding := bytes.Repeat([]byte("x"), 2<<20)
+	body, _ := json.Marshal(map[string]string{"path": string(padding)})
+	resp, err := http.Post(ts.URL+"/api/projects", "application/json", bytes.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("expected 400 for oversized body, got %d", resp.StatusCode)
 	}
 }

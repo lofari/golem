@@ -3,7 +3,6 @@ package server
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
@@ -75,7 +74,7 @@ func (s *Server) handleRegisterProject(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Path string `json:"path"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err := decodeJSON(r, &body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
@@ -137,7 +136,7 @@ func (s *Server) handleUpdateProjectConfig(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	var cfg config.Config
-	if err := json.NewDecoder(r.Body).Decode(&cfg); err != nil {
+	if err := decodeJSON(r, &cfg); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
@@ -185,7 +184,7 @@ func (s *Server) handleDiff(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleUpdateGlobalConfig(w http.ResponseWriter, r *http.Request) {
 	var cfg config.Config
-	if err := json.NewDecoder(r.Body).Decode(&cfg); err != nil {
+	if err := decodeJSON(r, &cfg); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}

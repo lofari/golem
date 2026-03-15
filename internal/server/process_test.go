@@ -97,3 +97,79 @@ func TestStopProcess(t *testing.T) {
 		}
 	}
 }
+
+func TestStopAllProcesses(t *testing.T) {
+	dir := setupTestProject(t)
+	srv := New(Config{})
+	srv.RegisterProject(dir)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	pid := srv.projectID(dir)
+
+	// Launch a process
+	body, _ := json.Marshal(LaunchRequest{Command: "code"})
+	resp, err := http.Post(ts.URL+"/api/projects/"+pid+"/processes", "application/json", bytes.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("expected 201, got %d", resp.StatusCode)
+	}
+
+	// StopAll
+	srv.StopAll()
+
+	// Wait for processes to terminate
+	time.Sleep(200 * time.Millisecond)
+
+	// Verify no processes have status "running"
+	srv.mu.RLock()
+	defer srv.mu.RUnlock()
+	for _, mp := range srv.processes {
+		mp.mu.Lock()
+		status := mp.info.Status
+		mp.mu.Unlock()
+		if status == "running" {
+			t.Fatalf("expected no running processes after StopAll, found %s", mp.info.ID)
+		}
+	}
+}
+
+func TestProcessGC(t *testing.T) {
+	srv := New(Config{ProcessRetention: 1 * time.Millisecond})
+
+	// Manually add a stopped process with an old StartedAt
+	mp := &managedProcess{
+		info: ProcessInfo{
+			ID:        "test-gc-proc",
+			Command:   "code",
+			Status:    "stopped",
+			StartedAt: time.Now().Add(-1 * time.Hour),
+		},
+		cancel: func() {},
+		subs:   make(map[chan []byte]struct{}),
+	}
+	srv.mu.Lock()
+	srv.processes["test-gc-proc"] = mp
+	srv.mu.Unlock()
+
+	// Verify the process exists
+	srv.mu.RLock()
+	if _, ok := srv.processes["test-gc-proc"]; !ok {
+		srv.mu.RUnlock()
+		t.Fatal("process should exist before reap")
+	}
+	srv.mu.RUnlock()
+
+	// Reap
+	srv.reapProcesses()
+
+	// Verify it's removed
+	srv.mu.RLock()
+	defer srv.mu.RUnlock()
+	if _, ok := srv.processes["test-gc-proc"]; ok {
+		t.Fatal("expected process to be reaped")
+	}
+}
