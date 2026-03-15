@@ -13,6 +13,7 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/lofari/golem/internal/scaffold"
 	"github.com/lofari/golem/internal/server"
 	"github.com/spf13/cobra"
 )
@@ -30,6 +31,16 @@ var uiCmd = &cobra.Command{
 		hasCtx := false
 		if _, err := os.Stat(dir + "/.ctx"); err == nil {
 			hasCtx = true
+		}
+
+		// Auto-scaffold if no .ctx/ exists
+		if !hasCtx {
+			fmt.Fprintf(os.Stderr, "golem ui: no .ctx/ found, initializing project...\n")
+			if _, err := scaffold.Init(dir, scaffold.InitOptions{}); err != nil {
+				return fmt.Errorf("auto-init: %w", err)
+			}
+			hasCtx = true
+			fmt.Fprintf(os.Stderr, "golem ui: run `golem setup` in the terminal pane to auto-configure\n")
 		}
 
 		ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
