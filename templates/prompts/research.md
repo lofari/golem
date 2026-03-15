@@ -10,3 +10,6 @@ ${goal}
 
 Write session-output.json containing:
 {"research-context": {"root-cause": "...", "affected-files": [...], "fix-approach": "..."}}
+
+## Previous Error Context
+${_error_context}

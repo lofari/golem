@@ -15,6 +15,7 @@ steps:
   - research:
       type: agentic
       reads: [goal]
+      optional-reads: [_error_context]
       writes: [research-context]
       tools: [semantic_search, find_callers, find_dependencies,
               find_co_changed, find_execution_failures, get_runtime_trace]
@@ -22,7 +23,7 @@ steps:
   - implement:
       type: agentic
       reads: [goal, research-context]
-      optional-reads: [lint-results, test-results]
+      optional-reads: [_error_context, lint-results, test-results]
       writes: [code, test-results]
 
   - lint:
