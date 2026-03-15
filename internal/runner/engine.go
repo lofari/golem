@@ -367,6 +367,10 @@ func (e *Engine) execBuiltinStep(ctx context.Context, step *Step) error {
 		result, err = primitiveCITests(ctx, e.cfg.Dir, e.cfg.Config, e.state)
 	case "create-pr":
 		result, err = primitiveCreatePR(ctx, e.cfg.Dir, e.cfg.Config, e.state)
+	case "init-state":
+		result, err = primitiveInitState(ctx, e.cfg.Dir, e.cfg.Config, e.state)
+	case "sync-state":
+		result, err = primitiveSyncState(ctx, e.cfg.Dir, e.cfg.Config, e.state)
 	default:
 		return fmt.Errorf("unknown builtin primitive: %s", step.Name)
 	}
