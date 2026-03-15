@@ -5,7 +5,10 @@ import (
 	"net"
 	"net/http"
 	"sync"
+	"time"
 )
+
+const maxRequestBody = 1 << 20 // 1MB
 
 // Config holds server configuration.
 type Config struct {
@@ -14,11 +17,12 @@ type Config struct {
 
 // Server is the golem API server.
 type Server struct {
-	cfg       Config
-	mux       *http.ServeMux
-	mu        sync.RWMutex
-	projects  map[string]*project
-	processes map[string]*managedProcess
+	cfg        Config
+	mux        *http.ServeMux
+	httpServer *http.Server
+	mu         sync.RWMutex
+	projects   map[string]*project
+	processes  map[string]*managedProcess
 }
 
 // New creates a new Server.
@@ -91,7 +95,13 @@ func (s *Server) ListenAndServe() error {
 
 // Serve starts the server on an existing listener.
 func (s *Server) Serve(ln net.Listener) error {
-	return http.Serve(ln, s.Handler())
+	s.httpServer = &http.Server{
+		Handler:      s.Handler(),
+		ReadTimeout:  30 * time.Second,
+		WriteTimeout: 60 * time.Second,
+		IdleTimeout:  120 * time.Second,
+	}
+	return s.httpServer.Serve(ln)
 }
 
 func cors(next http.Handler) http.Handler {
@@ -105,6 +115,11 @@ func cors(next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+func decodeJSON(r *http.Request, v interface{}) error {
+	r.Body = http.MaxBytesReader(nil, r.Body, maxRequestBody)
+	return json.NewDecoder(r.Body).Decode(v)
 }
 
 func writeJSON(w http.ResponseWriter, status int, v interface{}) {

@@ -2,7 +2,6 @@ package server
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
@@ -237,7 +236,7 @@ func (s *Server) handleLaunchProcess(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req LaunchRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := decodeJSON(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
