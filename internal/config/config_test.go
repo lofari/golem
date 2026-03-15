@@ -138,6 +138,37 @@ func TestGetValue_Engine(t *testing.T) {
 	}
 }
 
+func TestValidateConfig(t *testing.T) {
+	cfg := Defaults()
+	if err := Validate(cfg); err != nil {
+		t.Fatalf("defaults should be valid: %v", err)
+	}
+
+	bad := cfg
+	bad.MaxIterations = -1
+	if err := Validate(bad); err == nil {
+		t.Fatal("expected error for negative MaxIterations")
+	}
+
+	bad = cfg
+	bad.Parallel = 0
+	if err := Validate(bad); err == nil {
+		t.Fatal("expected error for zero Parallel")
+	}
+
+	bad = cfg
+	bad.MaxIterations = 1001
+	if err := Validate(bad); err == nil {
+		t.Fatal("expected error for MaxIterations > 1000")
+	}
+
+	bad = cfg
+	bad.MaxToolCalls = 0
+	if err := Validate(bad); err == nil {
+		t.Fatal("expected error for zero MaxToolCalls")
+	}
+}
+
 func TestGetValue_ContextMap(t *testing.T) {
 	cfg := Defaults()
 	v, err := GetValue(cfg, "context-map")

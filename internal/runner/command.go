@@ -128,7 +128,7 @@ func WriteMCPConfig(dir string, noLSP bool) (string, error) {
 }`, golemBin, args)
 
 	configPath := filepath.Join(dir, ".ctx", "mcp_servers.json")
-	if err := os.WriteFile(configPath, []byte(config), 0644); err != nil {
+	if err := os.WriteFile(configPath, []byte(config), 0600); err != nil {
 		return "", fmt.Errorf("writing mcp config: %w", err)
 	}
 	return configPath, nil
