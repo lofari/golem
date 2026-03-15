@@ -9,7 +9,8 @@ import (
 
 // Config holds server configuration.
 type Config struct {
-	Addr string // listen address, default ":8314"
+	Addr  string // listen address, default "127.0.0.1:8314"
+	Token string // auth token; empty means no auth
 }
 
 // Server is the golem API server.
@@ -77,7 +78,7 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 
 // Handler returns the HTTP handler with CORS middleware.
 func (s *Server) Handler() http.Handler {
-	return cors(s.mux)
+	return authMiddleware(s.cfg.Token, cors(s.mux))
 }
 
 // ListenAndServe starts the server.

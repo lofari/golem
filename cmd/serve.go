@@ -18,7 +18,12 @@ var serveCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		addr, _ := cmd.Flags().GetString("addr")
 
-		srv := server.New(server.Config{Addr: addr})
+		token, err := server.GenerateToken()
+		if err != nil {
+			return fmt.Errorf("generating auth token: %w", err)
+		}
+
+		srv := server.New(server.Config{Addr: addr, Token: token})
 
 		// Auto-register current directory if it has .ctx/
 		dir, _ := os.Getwd()
@@ -30,6 +35,7 @@ var serveCmd = &cobra.Command{
 		ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 		defer stop()
 
+		fmt.Fprintf(os.Stderr, "golem serve: auth token: %s\n", token)
 		fmt.Fprintf(os.Stderr, "golem serve: listening on %s\n", addr)
 
 		errCh := make(chan error, 1)
