@@ -4,14 +4,17 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"os/exec"
 
 	"github.com/spf13/cobra"
+	"golang.org/x/term"
+
 	"github.com/lofari/golem/internal/scaffold"
 )
 
 var initCmd = &cobra.Command{
 	Use:   "init",
-	Short: "Initialize .ctx/ directory and CLAUDE.md",
+	Short: "Initialize .ctx/ directory and configure the project",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		dir, err := os.Getwd()
 		if err != nil {
@@ -41,8 +44,28 @@ var initCmd = &cobra.Command{
 		for _, f := range result.Updated {
 			fmt.Printf("  %s\n", f)
 		}
-		fmt.Println("\nRun `golem plan` to start an interactive planning session.")
-		return nil
+
+		// Chain to setup unless --no-setup or non-interactive
+		noSetup, _ := cmd.Flags().GetBool("no-setup")
+		if noSetup {
+			fmt.Println("\nRun `golem setup` to auto-configure, or `golem plan` to start planning.")
+			return nil
+		}
+
+		if !term.IsTerminal(int(os.Stdin.Fd())) {
+			fmt.Println("\nRun `golem setup` to auto-configure.")
+			return nil
+		}
+
+		// Check if claude is available
+		if _, err := exec.LookPath("claude"); err != nil {
+			fmt.Println("\nClaude CLI not found. Install it for auto-configuration,")
+			fmt.Println("or configure manually with `golem config set`.")
+			return nil
+		}
+
+		fmt.Println()
+		return setupCmd.RunE(cmd, nil)
 	},
 }
 
@@ -51,4 +74,5 @@ func init() {
 	initCmd.Flags().String("name", "", "project name")
 	initCmd.Flags().String("stack", "", "tech stack")
 	initCmd.Flags().String("docs", "docs/", "path to design/implementation docs")
+	initCmd.Flags().Bool("no-setup", false, "skip interactive setup agent")
 }
