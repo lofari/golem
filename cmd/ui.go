@@ -82,7 +82,7 @@ var uiCmd = &cobra.Command{
 		// Find and launch the desktop app
 		appPath := findAppBinary()
 		if appPath == "" {
-			fmt.Fprintf(os.Stderr, "golem ui: desktop app not found (install golem-ui next to golem binary or in PATH)\n")
+			fmt.Fprintf(os.Stderr, "golem ui: desktop app not found — run `golem ui install` to build and install it\n")
 			fmt.Fprintf(os.Stderr, "golem ui: server running at http://localhost%s\n", addr)
 		} else {
 			fmt.Fprintf(os.Stderr, "golem ui: launching desktop app\n")
@@ -139,7 +139,149 @@ func findAppBinary() string {
 	return ""
 }
 
+var uiInstallCmd = &cobra.Command{
+	Use:   "install",
+	Short: "Build the Flutter desktop app and install it next to the golem binary",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		source, _ := cmd.Flags().GetString("source")
+
+		// Find Flutter source directory
+		flutterDir, err := findFlutterSource(source)
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(os.Stderr, "golem ui install: found Flutter source at %s\n", flutterDir)
+
+		// Check flutter is available
+		if _, err := exec.LookPath("flutter"); err != nil {
+			return fmt.Errorf("flutter CLI not found in PATH — install Flutter SDK first")
+		}
+
+		// Build
+		fmt.Fprintf(os.Stderr, "golem ui install: building desktop app...\n")
+		build := exec.Command("flutter", "build", "linux")
+		build.Dir = flutterDir
+		build.Stdout = os.Stdout
+		build.Stderr = os.Stderr
+		if err := build.Run(); err != nil {
+			return fmt.Errorf("flutter build failed: %w", err)
+		}
+
+		// Find the bundle
+		bundleSrc := filepath.Join(flutterDir, "build", "linux", "x64", "release", "bundle")
+		if _, err := os.Stat(bundleSrc); err != nil {
+			return fmt.Errorf("build output not found at %s", bundleSrc)
+		}
+
+		// Determine install destination (next to golem binary)
+		installDir, err := golemBinDir()
+		if err != nil {
+			return err
+		}
+
+		bundleDst := filepath.Join(installDir, "golem-ui-bundle")
+		symlinkPath := filepath.Join(installDir, "golem_ui")
+
+		// Remove old install if present
+		os.RemoveAll(bundleDst)
+		os.Remove(symlinkPath)
+
+		// Copy bundle directory
+		fmt.Fprintf(os.Stderr, "golem ui install: copying to %s\n", bundleDst)
+		if err := copyDir(bundleSrc, bundleDst); err != nil {
+			return fmt.Errorf("copying bundle: %w", err)
+		}
+
+		// Create symlink
+		if err := os.Symlink(filepath.Join(bundleDst, "golem_ui"), symlinkPath); err != nil {
+			return fmt.Errorf("creating symlink: %w", err)
+		}
+
+		fmt.Fprintf(os.Stderr, "golem ui install: installed to %s\n", symlinkPath)
+		fmt.Fprintf(os.Stderr, "golem ui install: run `golem ui` to launch\n")
+		return nil
+	},
+}
+
+// findFlutterSource locates the ui/flutter directory.
+func findFlutterSource(explicit string) (string, error) {
+	if explicit != "" {
+		if _, err := os.Stat(filepath.Join(explicit, "pubspec.yaml")); err != nil {
+			return "", fmt.Errorf("no pubspec.yaml found in %s", explicit)
+		}
+		return explicit, nil
+	}
+
+	// Try relative to the repo root (git rev-parse)
+	out, err := exec.Command("git", "rev-parse", "--show-toplevel").Output()
+	if err == nil {
+		candidate := filepath.Join(strings.TrimSpace(string(out)), "ui", "flutter")
+		if _, err := os.Stat(filepath.Join(candidate, "pubspec.yaml")); err == nil {
+			return candidate, nil
+		}
+	}
+
+	// Try relative to golem binary
+	if exe, err := os.Executable(); err == nil {
+		candidate := filepath.Join(filepath.Dir(exe), "..", "ui", "flutter")
+		if _, err := os.Stat(filepath.Join(candidate, "pubspec.yaml")); err == nil {
+			return filepath.Clean(candidate), nil
+		}
+	}
+
+	return "", fmt.Errorf("Flutter source not found — use --source to specify the ui/flutter directory")
+}
+
+// golemBinDir returns the directory containing the golem binary.
+func golemBinDir() (string, error) {
+	exe, err := os.Executable()
+	if err != nil {
+		return "", fmt.Errorf("cannot determine golem binary location: %w", err)
+	}
+	resolved, err := filepath.EvalSymlinks(exe)
+	if err != nil {
+		return "", fmt.Errorf("resolving golem binary path: %w", err)
+	}
+	return filepath.Dir(resolved), nil
+}
+
+// copyDir recursively copies src to dst.
+func copyDir(src, dst string) error {
+	return filepath.Walk(src, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+
+		rel, err := filepath.Rel(src, path)
+		if err != nil {
+			return err
+		}
+		target := filepath.Join(dst, rel)
+
+		if info.IsDir() {
+			return os.MkdirAll(target, info.Mode())
+		}
+
+		// Handle symlinks
+		if info.Mode()&os.ModeSymlink != 0 {
+			link, err := os.Readlink(path)
+			if err != nil {
+				return err
+			}
+			return os.Symlink(link, target)
+		}
+
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		return os.WriteFile(target, data, info.Mode())
+	})
+}
+
 func init() {
 	rootCmd.AddCommand(uiCmd)
+	uiCmd.AddCommand(uiInstallCmd)
 	uiCmd.Flags().String("addr", ":8314", "server listen address")
+	uiInstallCmd.Flags().String("source", "", "path to ui/flutter directory (auto-detected if omitted)")
 }
