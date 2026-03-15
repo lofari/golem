@@ -156,3 +156,62 @@ func TestWebSocketEngineEvents(t *testing.T) {
 		t.Fatalf("expected event type 'pipeline-start', got %v", parsed["type"])
 	}
 }
+
+func TestWebSocketEngineEvents_MultipleEvents(t *testing.T) {
+	dir := setupTestProject(t)
+	srv := New(Config{})
+	srv.RegisterProject(dir)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	pid := srv.projectID(dir)
+	runsDir := filepath.Join(dir, ".ctx", "runs", "run-multi-001")
+	os.MkdirAll(runsDir, 0755)
+
+	wsURL := "ws" + ts.URL[4:] + "/api/projects/" + pid + "/watch"
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	conn, _, err := websocket.Dial(ctx, wsURL, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close(websocket.StatusNormalClosure, "")
+
+	// Read initial state_changed
+	_, _, _ = conn.Read(ctx)
+
+	time.Sleep(100 * time.Millisecond)
+
+	// Write multiple events in one batch
+	logPath := filepath.Join(runsDir, "log.json")
+	events := []map[string]interface{}{
+		{"type": "pipeline-start", "timestamp": time.Now().Format(time.RFC3339Nano), "agent": "build-feature", "run-id": "run-multi-001"},
+		{"type": "step-start", "timestamp": time.Now().Format(time.RFC3339Nano), "step": "scaffold", "step-type": "builtin", "run-id": "run-multi-001"},
+		{"type": "step-end", "timestamp": time.Now().Format(time.RFC3339Nano), "step": "scaffold", "status": "success", "duration-ms": 1200, "run-id": "run-multi-001"},
+	}
+	f, _ := os.Create(logPath)
+	for _, ev := range events {
+		data, _ := json.Marshal(ev)
+		f.Write(data)
+		f.Write([]byte("\n"))
+	}
+	f.Close()
+
+	// Should receive 3 engine_event messages
+	received := 0
+	for received < 3 {
+		_, msg, err := conn.Read(ctx)
+		if err != nil {
+			t.Fatalf("expected more events, got %d: %v", received, err)
+		}
+		var wsMsg WSMessage
+		json.Unmarshal(msg, &wsMsg)
+		if wsMsg.Type == "engine_event" {
+			received++
+		}
+	}
+	if received != 3 {
+		t.Fatalf("expected 3 engine events, got %d", received)
+	}
+}
