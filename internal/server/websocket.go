@@ -1,11 +1,14 @@
 package server
 
 import (
+	"bufio"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/creack/pty/v2"
@@ -25,6 +28,7 @@ type WSMessage struct {
 	Code    *int        `json:"code,omitempty"`    // exit code
 	State   interface{} `json:"state,omitempty"`
 	Session interface{} `json:"session,omitempty"`
+	Event   interface{} `json:"event,omitempty"`
 	Error   string      `json:"error,omitempty"`
 }
 
@@ -126,6 +130,36 @@ func (s *Server) handleProcessStream(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// tailLogJSON reads new NDJSON lines from path starting at offset.
+func tailLogJSON(path string, offset int64) ([]json.RawMessage, int64) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, offset
+	}
+	defer f.Close()
+	info, err := f.Stat()
+	if err != nil || info.Size() <= offset {
+		return nil, offset
+	}
+	f.Seek(offset, 0)
+	var events []json.RawMessage
+	var bytesRead int64
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		line := scanner.Bytes()
+		bytesRead += int64(len(line)) + 1
+		if len(line) == 0 {
+			continue
+		}
+		raw := make(json.RawMessage, len(line))
+		copy(raw, line)
+		if json.Valid(raw) {
+			events = append(events, raw)
+		}
+	}
+	return events, offset + bytesRead
+}
+
 func (s *Server) handleStateWatch(w http.ResponseWriter, r *http.Request) {
 	proj, ok := s.getProject(r.PathValue("id"))
 	if !ok {
@@ -159,6 +193,33 @@ func (s *Server) handleStateWatch(w http.ResponseWriter, r *http.Request) {
 	// Watch the directory (fsnotify needs directory for rename-based writes)
 	watcher.Add(ctxDir)
 
+	// Runs directory watching
+	runsDir := filepath.Join(proj.path, ".ctx", "runs")
+	runsWatched := false
+	logOffsets := make(map[string]int64)
+
+	watchRunDirs := func() {
+		info, err := os.Stat(runsDir)
+		if err != nil || !info.IsDir() {
+			return
+		}
+		if !runsWatched {
+			watcher.Add(runsDir)
+			runsWatched = true
+		}
+		entries, err := os.ReadDir(runsDir)
+		if err != nil {
+			return
+		}
+		for _, e := range entries {
+			if e.IsDir() {
+				subDir := filepath.Join(runsDir, e.Name())
+				watcher.Add(subDir)
+			}
+		}
+	}
+	watchRunDirs()
+
 	// Send initial state
 	if state, err := golemctx.ReadState(proj.path); err == nil {
 		msg, _ := json.Marshal(WSMessage{Type: "state_changed", State: state})
@@ -167,6 +228,7 @@ func (s *Server) handleStateWatch(w http.ResponseWriter, r *http.Request) {
 
 	// Debounce timer to avoid rapid-fire updates
 	var debounce *time.Timer
+	var pendingState, pendingLog bool
 
 	for {
 		select {
@@ -180,7 +242,6 @@ func (s *Server) handleStateWatch(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 
-			// Check if it's a file we care about
 			absPath, _ := filepath.Abs(event.Name)
 			absState, _ := filepath.Abs(statePath)
 			absLog, _ := filepath.Abs(logPath)
@@ -188,8 +249,38 @@ func (s *Server) handleStateWatch(w http.ResponseWriter, r *http.Request) {
 			isState := absPath == absState
 			isLog := absPath == absLog
 
+			// Check if this is a run log.json change
+			if strings.HasPrefix(absPath, runsDir+string(os.PathSeparator)) &&
+				filepath.Base(absPath) == "log.json" {
+				// Immediate delivery — no debounce
+				offset := logOffsets[absPath]
+				events, newOffset := tailLogJSON(absPath, offset)
+				logOffsets[absPath] = newOffset
+				for _, ev := range events {
+					var parsed interface{}
+					json.Unmarshal(ev, &parsed)
+					msg, _ := json.Marshal(WSMessage{Type: "engine_event", Event: parsed})
+					conn.Write(ctx, websocket.MessageText, msg)
+				}
+				continue
+			}
+
+			// Check if this is a new subdirectory in runs/
+			if strings.HasPrefix(absPath, runsDir+string(os.PathSeparator)) {
+				watchRunDirs()
+				continue
+			}
+
 			if !isState && !isLog {
 				continue
+			}
+
+			// Accumulate pending flags
+			if isState {
+				pendingState = true
+			}
+			if isLog {
+				pendingLog = true
 			}
 
 			// Debounce: wait 200ms for writes to settle
@@ -197,13 +288,14 @@ func (s *Server) handleStateWatch(w http.ResponseWriter, r *http.Request) {
 				debounce.Stop()
 			}
 			debounce = time.AfterFunc(200*time.Millisecond, func() {
-				if isState {
+				if pendingState {
 					if state, err := golemctx.ReadState(proj.path); err == nil {
 						msg, _ := json.Marshal(WSMessage{Type: "state_changed", State: state})
 						conn.Write(ctx, websocket.MessageText, msg)
 					}
+					pendingState = false
 				}
-				if isLog {
+				if pendingLog {
 					if log, err := golemctx.ReadLog(proj.path); err == nil {
 						sessions := log.Sessions
 						if len(sessions) > 0 {
@@ -211,6 +303,7 @@ func (s *Server) handleStateWatch(w http.ResponseWriter, r *http.Request) {
 							conn.Write(ctx, websocket.MessageText, msg)
 						}
 					}
+					pendingLog = false
 				}
 			})
 		case err, ok := <-watcher.Errors:
