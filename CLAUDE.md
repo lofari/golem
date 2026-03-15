@@ -28,8 +28,9 @@ internal/
   graph/       Knowledge graph (embeddings, tree-sitter, LSP, queries)
 templates/     Embedded templates: agents/*.yaml, prompts/*.md, state.yaml, log.yaml, claude.md
 ui/flutter/    Flutter desktop GUI (Riverpod, xterm.dart, WebSocket)
-golem-dsl/     Clojure DSL for agent workflows (experimental)
 ```
+
+For a deeper codebase walkthrough, see [docs/architecture.md](docs/architecture.md).
 
 Key interfaces:
 - `runner.CommandRunner` — abstracts Claude CLI invocation. Production impl: `ClaudeRunner`.
@@ -38,7 +39,7 @@ Key interfaces:
 
 ## Commands
 
-- `golem code` (alias: `build`) — blueprint engine loop (default), also supports legacy/DSL engines
+- `golem code` (alias: `build`) — blueprint engine loop (default), also supports legacy engine
 - `golem run <agent> <goal>` — run a specific blueprint agent with a goal
 - `golem agents` — list available agents (built-in + project-local)
 - `golem runs [list|attach]` — view/attach to active or recent runs

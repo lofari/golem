@@ -86,7 +86,7 @@ golem qa
 # Check status anytime
 golem status
 
-# Or use DSL agents directly
+# Run a specific agent
 golem run build-feature --goal "add user auth"
 golem agents
 ```
@@ -112,6 +112,15 @@ golem review --sandbox
 ```
 
 Without `--sandbox`, run golem in an isolated environment (Docker container, VM, or disposable worktree) to limit blast radius.
+
+## Documentation
+
+- [Blueprint Authoring Guide](docs/blueprint-authoring.md) — Write custom agents and pipelines
+- [Architecture Guide](docs/architecture.md) — Codebase deep-dive for contributors
+- [API Reference](docs/api-reference.md) — REST and WebSocket endpoints
+- [Troubleshooting](docs/troubleshooting.md) — Common issues and debugging
+- [Contributing](CONTRIBUTING.md) — How to contribute to golem
+- [Changelog](CHANGELOG.md) — Version history
 
 ## Workflow
 
@@ -196,7 +205,7 @@ golem plan --model opus
 
 The core loop. By default uses the **blueprint engine** — a YAML pipeline executor with structured steps, control flow, and error handling. Also available as `golem build` (alias).
 
-The engine can be changed via config: `engine: blueprint` (default), `engine: dsl` (Clojure), or `engine: legacy` (original Go builder loop).
+The engine can be changed via config: `engine: blueprint` (default) or `engine: legacy` (original Go builder loop).
 
 ```bash
 golem code
@@ -301,7 +310,7 @@ golem config list                       # show all resolved values
 
 ### `golem run`
 
-Run a DSL-defined agent. This is the primary command for the Clojure DSL orchestration engine.
+Run a named blueprint agent with a goal.
 
 ```bash
 golem run build-feature --goal "add user authentication"
@@ -356,7 +365,7 @@ The server provides REST and WebSocket APIs for project state, process managemen
 
 ### `golem session`
 
-Runs a single Claude Code session from a prompt file. Primarily used by `golem-dsl` as a session adapter — not typically called directly.
+Runs a single Claude Code session from a prompt file. Primarily used internally as a session adapter — not typically called directly.
 
 ```bash
 golem session --prompt prompt.md --dir /path/to/project
@@ -720,77 +729,6 @@ errors:
     max: 2
   contract-violation:
     action: halt
-```
-
-## DSL Agents (Experimental)
-
-golem also includes an optional Clojure-based DSL for defining multi-step agent workflows as composable graphs. The DSL runs as a sidecar binary (`golem-dsl`) that communicates with the Go CLI via NDJSON events on stdout and shared filesystem state. The DSL achieves ~85% parity with YAML blueprints — it supports agentic steps, control flow, and error handling, but lacks shell steps and per-step configuration granularity.
-
-### Architecture
-
-```
-golem run build-feature --goal "add auth"
-    │
-    └── spawns: golem-dsl run build-feature --goal "add auth" --state-dir .
-                    │
-                    ├── emits NDJSON events on stdout (step-start, step-end, agent-done)
-                    ├── syncs state to .ctx/state.yaml after each step
-                    └── spawns: golem session --prompt <file> --dir .
-                                    │
-                                    └── runs: claude -p (headless Claude Code session)
-```
-
-### Configuration
-
-```bash
-golem config set engine dsl              # use DSL engine (default: blueprint)
-golem config set dsl-command golem-dsl   # path to DSL binary
-golem config set agent build-feature     # default agent for golem code
-```
-
-### Defining Custom Agents
-
-Create `.clj` files in `.ctx/agents/` to define project-local agents:
-
-```clojure
-;; .ctx/agents/my-flow.clj
-(defagent my-flow
-  "Custom workflow for my project."
-  {:initial-state [:goal]}
-  (research)
-  (plan)
-  (implement)
-  (review)
-  (while needs-work? {:max 3}
-    (implement)
-    (review)))
-```
-
-Project-local agents take priority over built-in agents with the same name.
-
-### Built-in Agents
-
-| Agent | Description |
-|-------|-------------|
-| `build-feature` | Plan → implement → review loop (with retry on needs-work) |
-| `fix-bug` | Research → plan → implement → review |
-| `write-docs` | Reflect → plan → implement → review |
-| `review` | Single-pass code review |
-
-### Installing golem-dsl
-
-The DSL binary can be built from source using GraalVM native-image:
-
-```bash
-cd golem-dsl
-make native    # produces target/golem-dsl
-```
-
-Or run directly via Clojure:
-
-```bash
-cd golem-dsl
-clojure -M:run run build-feature --goal "add auth" --state-dir /path/to/project
 ```
 
 ## Design Principles
