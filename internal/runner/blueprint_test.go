@@ -293,6 +293,21 @@ steps:
 	}
 }
 
+func TestValidateAgentName(t *testing.T) {
+	valid := []string{"build-feature", "fix-bug", "my_agent", "agent123"}
+	for _, name := range valid {
+		if err := ValidateAgentName(name); err != nil {
+			t.Errorf("expected %q valid, got: %v", name, err)
+		}
+	}
+	invalid := []string{"../etc/passwd", "agent;rm", "$(whoami)", "a/b", ""}
+	for _, name := range invalid {
+		if err := ValidateAgentName(name); err == nil {
+			t.Errorf("expected %q invalid", name)
+		}
+	}
+}
+
 func TestParseBuilderBlueprint(t *testing.T) {
 	data, err := templates.FS.ReadFile("agents/builder.yaml")
 	if err != nil {
