@@ -89,7 +89,9 @@ class _ProjectWorkspaceState extends ConsumerState<ProjectWorkspace> {
                 flex: 45,
                 child: DetailPanel(
                   selectedRun: selectedRun,
-                  events: const [],
+                  events: selectedRun != null
+                      ? ref.watch(runEventsFamily(selectedRun.runId))
+                      : const [],
                 ),
               ),
             ],
