@@ -60,7 +60,10 @@ type Step struct {
 
 // StepErrors holds per-step error handling configuration.
 type StepErrors struct {
-	NonZero string `yaml:"non-zero"`
+	NonZero           string        `yaml:"non-zero"`
+	Transient         *ErrorHandler `yaml:"transient"`
+	MalformedOutput   *ErrorHandler `yaml:"malformed-output"`
+	ContractViolation *ErrorHandler `yaml:"contract-violation"`
 }
 
 // ControlFlowNode represents a control flow construct (while, when, if).

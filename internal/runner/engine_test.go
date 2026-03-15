@@ -425,6 +425,49 @@ tasks: []
 	}
 }
 
+func TestResolveHandler_Priority(t *testing.T) {
+	stepHandler := ErrorHandler{Action: "retry", Max: 5}
+	bpHandler := ErrorHandler{Action: "retry", Max: 2}
+
+	// Step-level wins over blueprint-level
+	got := resolveErrorHandler(
+		&StepErrors{Transient: &stepHandler},
+		&ErrorHandlers{Transient: bpHandler},
+		"transient",
+	)
+	if got.Max != 5 {
+		t.Errorf("expected step handler max=5, got %d", got.Max)
+	}
+
+	// Blueprint-level used when step has no handler
+	got = resolveErrorHandler(
+		nil,
+		&ErrorHandlers{Transient: bpHandler},
+		"transient",
+	)
+	if got.Max != 2 {
+		t.Errorf("expected blueprint handler max=2, got %d", got.Max)
+	}
+
+	// Built-in default when neither defines handler
+	got = resolveErrorHandler(nil, &ErrorHandlers{}, "transient")
+	if got.Action != "retry" || got.Max != 3 {
+		t.Errorf("expected default retry/3, got %s/%d", got.Action, got.Max)
+	}
+
+	// Built-in default for malformed-output
+	got = resolveErrorHandler(nil, &ErrorHandlers{}, "malformed-output")
+	if got.Action != "re-run" || got.Max != 2 {
+		t.Errorf("expected default re-run/2, got %s/%d", got.Action, got.Max)
+	}
+
+	// Unrecoverable always halts
+	got = resolveErrorHandler(nil, &ErrorHandlers{}, "unrecoverable")
+	if got.Action != "halt" {
+		t.Errorf("expected default halt, got %s", got.Action)
+	}
+}
+
 func TestEngine_Integration_BuildFeatureLoop(t *testing.T) {
 	dir := setupGitRepo(t)
 	os.MkdirAll(filepath.Join(dir, ".ctx", "runs"), 0755)

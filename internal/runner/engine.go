@@ -529,6 +529,57 @@ func (e *Engine) resolveStepRef(ref string, inlineSteps []Step) *Step {
 	return nil
 }
 
+// Built-in error handler defaults.
+var defaultErrorHandlers = map[string]ErrorHandler{
+	"transient":          {Action: "retry", Max: 3},
+	"malformed-output":   {Action: "re-run", Max: 2},
+	"unrecoverable":      {Action: "halt"},
+	"contract-violation": {Action: "halt"},
+}
+
+// resolveErrorHandler returns the handler for a given error type using the priority chain:
+// step-level > blueprint-level > built-in defaults.
+func resolveErrorHandler(stepErrs *StepErrors, bpErrs *ErrorHandlers, errType string) ErrorHandler {
+	// Step-level
+	if stepErrs != nil {
+		switch errType {
+		case "transient":
+			if stepErrs.Transient != nil {
+				return *stepErrs.Transient
+			}
+		case "malformed-output":
+			if stepErrs.MalformedOutput != nil {
+				return *stepErrs.MalformedOutput
+			}
+		case "contract-violation":
+			if stepErrs.ContractViolation != nil {
+				return *stepErrs.ContractViolation
+			}
+		}
+	}
+
+	// Blueprint-level
+	if bpErrs != nil {
+		switch errType {
+		case "transient":
+			if bpErrs.Transient.Action != "" {
+				return bpErrs.Transient
+			}
+		case "malformed-output":
+			if bpErrs.MalformedOutput.Action != "" {
+				return bpErrs.MalformedOutput
+			}
+		case "contract-violation":
+			if bpErrs.ContractViolation.Action != "" {
+				return bpErrs.ContractViolation
+			}
+		}
+	}
+
+	// Built-in default
+	return defaultErrorHandlers[errType]
+}
+
 func (e *Engine) handleError(ctx context.Context, step *Step, err error) error {
 	var transient *TransientError
 	var unrecoverable *UnrecoverableError
@@ -536,42 +587,37 @@ func (e *Engine) handleError(ctx context.Context, step *Step, err error) error {
 
 	switch {
 	case errors.As(err, &unrecoverable):
-		e.emit(EngineEvent{Type: "error-occurred", Step: step.Name, ErrorType: "unrecoverable", Action: "halt"})
+		handler := resolveErrorHandler(step.StepErrors, &e.cfg.Blueprint.Errors, "unrecoverable")
+		e.emit(EngineEvent{Type: "error-occurred", Step: step.Name, ErrorType: "unrecoverable", Action: handler.Action})
 		return err
 
 	case errors.As(err, &malformed):
-		handler := e.cfg.Blueprint.Errors.MalformedOutput
-		if handler.Action == "" {
-			handler.Action = "halt"
-		}
+		handler := resolveErrorHandler(step.StepErrors, &e.cfg.Blueprint.Errors, "malformed-output")
 		return e.handleMalformedOutput(ctx, step, malformed, handler)
 
 	case errors.As(err, &transient):
-		handler := e.cfg.Blueprint.Errors.Transient
-		if handler.Action == "" {
-			handler.Action = "halt"
-		}
-		return e.handleTransient(ctx, step, handler)
+		handler := resolveErrorHandler(step.StepErrors, &e.cfg.Blueprint.Errors, "transient")
+		return e.handleTransient(ctx, step, transient, handler)
 
 	default:
-		handler := e.cfg.Blueprint.Errors.Transient
-		if handler.Action == "" {
-			handler.Action = "halt"
-		}
-		return e.handleTransient(ctx, step, handler)
+		handler := resolveErrorHandler(step.StepErrors, &e.cfg.Blueprint.Errors, "transient")
+		return e.handleTransient(ctx, step, &TransientError{Msg: err.Error()}, handler)
 	}
 }
 
-func (e *Engine) handleTransient(ctx context.Context, step *Step, handler ErrorHandler) error {
+func (e *Engine) handleTransient(ctx context.Context, step *Step, transientErr *TransientError, handler ErrorHandler) error {
 	if handler.Action != "retry" || handler.Max <= 0 {
 		return fmt.Errorf("step %q failed (transient, no retry configured)", step.Name)
 	}
 	for attempt := 1; attempt <= handler.Max; attempt++ {
 		e.emit(EngineEvent{Type: "error-retry", Step: step.Name, ErrorType: "transient", Attempt: attempt, Action: "retry"})
+		e.state["_error_context"] = fmt.Sprintf("Previous error (attempt %d/%d): %s", attempt, handler.Max, transientErr.Msg)
 		if err := e.runStep(ctx, step); err == nil {
+			delete(e.state, "_error_context")
 			return nil
 		}
 	}
+	delete(e.state, "_error_context")
 	return fmt.Errorf("step %q failed after %d retries", step.Name, handler.Max)
 }
 
@@ -581,14 +627,16 @@ func (e *Engine) handleMalformedOutput(ctx context.Context, step *Step, malforme
 	}
 	for attempt := 1; attempt <= handler.Max; attempt++ {
 		e.emit(EngineEvent{Type: "error-retry", Step: step.Name, ErrorType: "malformed-output", Attempt: attempt, Action: "re-run"})
+		errCtx := fmt.Sprintf("Previous error (attempt %d/%d): %s", attempt, handler.Max, malformed.Msg)
 		if handler.Hint != "" {
-			e.state["_hint"] = handler.Hint
+			errCtx += "\nHint: " + handler.Hint
 		}
+		e.state["_error_context"] = errCtx
 		if err := e.runStep(ctx, step); err == nil {
-			delete(e.state, "_hint")
+			delete(e.state, "_error_context")
 			return nil
 		}
 	}
-	delete(e.state, "_hint")
+	delete(e.state, "_error_context")
 	return fmt.Errorf("step %q: malformed output after %d re-runs: %s", step.Name, handler.Max, malformed.Msg)
 }
