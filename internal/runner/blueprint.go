@@ -3,6 +3,7 @@ package runner
 import (
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -23,6 +24,19 @@ const (
 	ControlWhen  = "when"
 	ControlIf    = "if"
 )
+
+var validAgentName = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_-]*$`)
+
+// ValidateAgentName checks that an agent name is safe for filesystem use.
+func ValidateAgentName(name string) error {
+	if name == "" {
+		return fmt.Errorf("empty agent name")
+	}
+	if !validAgentName.MatchString(name) {
+		return fmt.Errorf("invalid agent name %q: must contain only alphanumeric, hyphens, underscores", name)
+	}
+	return nil
+}
 
 // Reserved engine-managed keys
 var reservedKeys = map[string]bool{

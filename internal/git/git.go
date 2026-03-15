@@ -69,6 +69,9 @@ func DiffSummary(dir string, baseRef string) (*DiffSummaryResult, error) {
 	if baseRef == "" {
 		baseRef = "HEAD~1"
 	}
+	if err := ValidateGitRef(baseRef); err != nil {
+		return nil, err
+	}
 
 	cmd := exec.Command("git", "diff", "--numstat", baseRef+"..HEAD")
 	cmd.Dir = dir
@@ -110,6 +113,12 @@ func DiffSummary(dir string, baseRef string) (*DiffSummaryResult, error) {
 func DiffPatch(dir string, baseRef string, filePath string) (string, error) {
 	if baseRef == "" {
 		baseRef = "HEAD~1"
+	}
+	if err := ValidateGitRef(baseRef); err != nil {
+		return "", err
+	}
+	if err := ValidateFilePath(filePath); err != nil {
+		return "", err
 	}
 	cmd := exec.Command("git", "diff", baseRef+"..HEAD", "--", filePath)
 	cmd.Dir = dir

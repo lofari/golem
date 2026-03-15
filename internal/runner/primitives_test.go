@@ -129,6 +129,24 @@ func TestPrimitiveCreatePR_NoChanges(t *testing.T) {
 	}
 }
 
+func TestBuildGHPRArgs_NoShellInjection(t *testing.T) {
+	title := `feat: add "quoted" feature & more`
+	body := "line1\nline2\n$(whoami)"
+	base := "main"
+	branch := "golem/build$(rm)-test"
+
+	args := buildGHPRArgs(title, body, base, branch)
+	expected := []string{"pr", "create", "--title", title, "--body", body, "--base", base, "--head", branch}
+	if len(args) != len(expected) {
+		t.Fatalf("expected %d args, got %d: %v", len(expected), len(args), args)
+	}
+	for i, a := range expected {
+		if args[i] != a {
+			t.Errorf("arg[%d]: expected %q, got %q", i, a, args[i])
+		}
+	}
+}
+
 func TestGeneratePRTitle(t *testing.T) {
 	tests := []struct {
 		goal string
