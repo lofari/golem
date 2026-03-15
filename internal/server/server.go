@@ -4,12 +4,14 @@ import (
 	"encoding/json"
 	"net"
 	"net/http"
+	"strings"
 	"sync"
 )
 
 // Config holds server configuration.
 type Config struct {
-	Addr string // listen address, default ":8314"
+	Addr  string // listen address, default "127.0.0.1:8314"
+	Token string // auth token; empty means no auth
 }
 
 // Server is the golem API server.
@@ -24,7 +26,7 @@ type Server struct {
 // New creates a new Server.
 func New(cfg Config) *Server {
 	if cfg.Addr == "" {
-		cfg.Addr = ":8314"
+		cfg.Addr = "127.0.0.1:8314"
 	}
 	s := &Server{
 		cfg:       cfg,
@@ -77,7 +79,7 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 
 // Handler returns the HTTP handler with CORS middleware.
 func (s *Server) Handler() http.Handler {
-	return cors(s.mux)
+	return authMiddleware(s.cfg.Token, cors(s.mux))
 }
 
 // ListenAndServe starts the server.
@@ -96,15 +98,37 @@ func (s *Server) Serve(ln net.Listener) error {
 
 func cors(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
+		origin := r.Header.Get("Origin")
+		if isAllowedOrigin(origin) {
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+		}
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+// isAllowedOrigin checks if the origin matches localhost or 127.0.0.1 on any port.
+func isAllowedOrigin(origin string) bool {
+	prefixes := []string{
+		"http://localhost",
+		"http://127.0.0.1",
+		"https://localhost",
+		"https://127.0.0.1",
+	}
+	for _, prefix := range prefixes {
+		if origin == prefix {
+			return true
+		}
+		if strings.HasPrefix(origin, prefix+":") {
+			return true
+		}
+	}
+	return false
 }
 
 func writeJSON(w http.ResponseWriter, status int, v interface{}) {
