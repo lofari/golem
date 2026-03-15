@@ -1,6 +1,6 @@
 GOPATH ?= $(shell go env GOPATH)
 
-.PHONY: install install-cli install-ui build test ui
+.PHONY: install install-cli install-ui build test vet ui
 
 install: install-cli install-ui
 
@@ -19,4 +19,7 @@ build:
 	go build ./...
 
 test:
-	go test ./...
+	go test -race -timeout 5m ./...
+
+vet:
+	go vet ./...
