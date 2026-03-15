@@ -22,6 +22,25 @@ func evalBuiltinPredicate(name string, state map[string]any, config map[string]a
 		return ok && b, true
 	case "ci-failed":
 		return getNestedString(state, "ci-results", "status") == "fail", true
+	case "tasks-remaining":
+		if halt, _ := state["_halt"].(bool); halt {
+			return false, true
+		}
+		tasks, ok := state["tasks"].([]any)
+		if !ok {
+			return false, true
+		}
+		for _, t := range tasks {
+			tm, ok := t.(map[string]any)
+			if !ok {
+				continue
+			}
+			status, _ := tm["status"].(string)
+			if status == "todo" || status == "in-progress" {
+				return true, true
+			}
+		}
+		return false, true
 	default:
 		return false, false
 	}

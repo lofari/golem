@@ -76,6 +76,79 @@ func TestPredicate_CIEnabled(t *testing.T) {
 	}
 }
 
+func TestTasksRemainingPredicate(t *testing.T) {
+	tests := []struct {
+		name  string
+		state map[string]any
+		want  bool
+	}{
+		{
+			name:  "no tasks key",
+			state: map[string]any{},
+			want:  false,
+		},
+		{
+			name: "all done",
+			state: map[string]any{
+				"tasks": []any{
+					map[string]any{"name": "t1", "status": "done"},
+					map[string]any{"name": "t2", "status": "done"},
+				},
+			},
+			want: false,
+		},
+		{
+			name: "has todo",
+			state: map[string]any{
+				"tasks": []any{
+					map[string]any{"name": "t1", "status": "done"},
+					map[string]any{"name": "t2", "status": "todo"},
+				},
+			},
+			want: true,
+		},
+		{
+			name: "has in-progress",
+			state: map[string]any{
+				"tasks": []any{
+					map[string]any{"name": "t1", "status": "in-progress"},
+				},
+			},
+			want: true,
+		},
+		{
+			name: "only blocked tasks",
+			state: map[string]any{
+				"tasks": []any{
+					map[string]any{"name": "t1", "status": "blocked"},
+				},
+			},
+			want: false,
+		},
+		{
+			name: "halt flag set",
+			state: map[string]any{
+				"tasks": []any{
+					map[string]any{"name": "t1", "status": "todo"},
+				},
+				"_halt": true,
+			},
+			want: false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, found := evalBuiltinPredicate("tasks-remaining", tt.state, nil)
+			if !found {
+				t.Fatal("predicate not recognized")
+			}
+			if got != tt.want {
+				t.Errorf("tasks-remaining = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestPredicate_Unknown(t *testing.T) {
 	got, found := evalBuiltinPredicate("nonexistent", nil, nil)
 	if found {
