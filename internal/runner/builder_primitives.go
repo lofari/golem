@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 
 	golemctx "github.com/lofari/golem/internal/ctx"
@@ -267,6 +268,93 @@ func buildCurrentTask(tm map[string]any, dir string, pipelineState map[string]an
 	}
 
 	return ct
+}
+
+// primitiveBuildContext assembles the task-context markdown string.
+func primitiveBuildContext(_ context.Context, dir string, config map[string]any, pipelineState map[string]any) (PrimitiveResult, error) {
+	ct, ok := pipelineState["current-task"].(map[string]any)
+	if !ok {
+		return nil, &UnrecoverableError{Msg: "build-context: no current-task in state"}
+	}
+	pc, _ := pipelineState["project-context"].(map[string]any)
+	lc, _ := pipelineState["log-context"].(map[string]any)
+
+	var b strings.Builder
+
+	// 1. Task (always)
+	name, _ := ct["name"].(string)
+	status, _ := ct["status"].(string)
+	notes, _ := ct["notes"].(string)
+	b.WriteString(fmt.Sprintf("## Your Task\nName: %q\nStatus: %s\n", name, status))
+	if notes != "" {
+		b.WriteString(fmt.Sprintf("Notes: %s\n", notes))
+	}
+
+	// 2. Documentation pointer
+	if docHint, ok := ct["doc_hint"].(string); ok && docHint != "" {
+		b.WriteString(fmt.Sprintf("\n## Documentation\nRead the implementation details at: %s\nDo NOT read other sections or other doc files — they cover completed work.\n", docHint))
+	}
+
+	// 3. Previous iteration handoff
+	if lc != nil {
+		handoff, _ := lc["last_handoff"].(string)
+		if handoff != "" {
+			lastTask, _ := lc["last_task"].(string)
+			lastOutcome, _ := lc["last_outcome"].(string)
+			b.WriteString(fmt.Sprintf("\n## Handoff from Previous Iteration\n%s\n\nLast task: %s — outcome: %s\n", handoff, lastTask, lastOutcome))
+		}
+	}
+
+	// 4. Recent changes
+	if lc != nil {
+		diffStat, _ := lc["last_diff_stat"].(string)
+		if diffStat != "" {
+			b.WriteString(fmt.Sprintf("\n## Recent Changes (last iteration)\n%s\n", diffStat))
+		}
+	}
+
+	// 5. Decisions & Pitfalls
+	if pc != nil {
+		if decisions, ok := pc["decisions"].([]golemctx.Decision); ok && len(decisions) > 0 {
+			b.WriteString("\n## Project Decisions\n")
+			for _, d := range decisions {
+				b.WriteString(fmt.Sprintf("- %s — %s\n", d.What, d.Why))
+			}
+		}
+		if pitfalls, ok := pc["pitfalls"].([]golemctx.Pitfall); ok && len(pitfalls) > 0 {
+			b.WriteString("\n## Known Pitfalls\n")
+			for _, p := range pitfalls {
+				b.WriteString(fmt.Sprintf("- %s\n", p.String()))
+			}
+		}
+	}
+
+	// 6. Context map (graph-based) — only if graph exists
+	if dir != "" {
+		contextMapStr := buildContextMapForTask(dir, name, notes, config)
+		if contextMapStr != "" {
+			b.WriteString("\n")
+			b.WriteString(contextMapStr)
+		}
+	}
+
+	return PrimitiveResult{
+		"task-context": b.String(),
+	}, nil
+}
+
+// buildContextMapForTask generates a context map string for the given task.
+// Returns empty string if graph is not available or has no embeddings.
+func buildContextMapForTask(dir, taskName, taskNotes string, config map[string]any) string {
+	graphPath := filepath.Join(dir, ".ctx", "graph.db")
+	if _, err := os.Stat(graphPath); err != nil {
+		return ""
+	}
+	// Graph integration: attempts to open graph, build context map, and format.
+	// Returns empty string on any error (graph is optional).
+	// Full implementation requires graph/embed imports — for now, just check file existence.
+	// TODO: wire up graph.OpenStore, embed.NewONNXEmbedder, graphctx.BuildContextMap when graph is available
+	return ""
 }
 
 // gitHead returns the current HEAD commit hash.

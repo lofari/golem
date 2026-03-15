@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -362,5 +363,88 @@ func TestPrimitiveSyncState_AutoRepairBlockedWithoutReason(t *testing.T) {
 	task2 := tasks[1].(map[string]any)
 	if task2["blocked_reason"] != "no reason provided by agent" {
 		t.Errorf("blocked_reason should be auto-filled, got %v", task2["blocked_reason"])
+	}
+}
+
+func TestPrimitiveBuildContext(t *testing.T) {
+	state := map[string]any{
+		"current-task": map[string]any{
+			"name":     "Add Auth",
+			"status":   "todo",
+			"notes":    "implement JWT auth",
+			"doc_hint": "docs/impl.md section '## Task 2'",
+		},
+		"project-context": map[string]any{
+			"decisions": []golemctx.Decision{
+				{What: "use JWT", Why: "standard", When: "2026-01-01"},
+			},
+			"pitfalls": []golemctx.Pitfall{
+				{What: "token expiry", Fix: "set 1h TTL"},
+			},
+			"docs_path": "docs/",
+		},
+		"log-context": map[string]any{
+			"last_task":      "Setup DB",
+			"last_outcome":   "done",
+			"last_handoff":   "DB ready, move to auth",
+			"last_diff_stat": " 3 files changed, 50 insertions(+)",
+		},
+	}
+
+	result, err := primitiveBuildContext(nil, "", nil, state)
+	if err != nil {
+		t.Fatalf("primitiveBuildContext: %v", err)
+	}
+
+	tc, ok := result["task-context"].(string)
+	if !ok || tc == "" {
+		t.Fatal("task-context should be a non-empty string")
+	}
+
+	checks := []string{
+		"## Your Task",
+		`Name: "Add Auth"`,
+		"implement JWT auth",
+		"## Documentation",
+		"docs/impl.md section '## Task 2'",
+		"## Handoff from Previous Iteration",
+		"DB ready, move to auth",
+		"## Recent Changes",
+		"3 files changed",
+		"## Project Decisions",
+		"use JWT",
+		"## Known Pitfalls",
+		"token expiry",
+	}
+	for _, check := range checks {
+		if !strings.Contains(tc, check) {
+			t.Errorf("task-context missing %q", check)
+		}
+	}
+}
+
+func TestPrimitiveBuildContext_MinimalState(t *testing.T) {
+	state := map[string]any{
+		"current-task": map[string]any{
+			"name":   "Do thing",
+			"status": "todo",
+		},
+		"project-context": map[string]any{},
+	}
+
+	result, err := primitiveBuildContext(nil, "", nil, state)
+	if err != nil {
+		t.Fatalf("primitiveBuildContext: %v", err)
+	}
+
+	tc := result["task-context"].(string)
+	if !strings.Contains(tc, "## Your Task") {
+		t.Error("should always contain task section")
+	}
+	if strings.Contains(tc, "## Documentation") {
+		t.Error("should not contain doc section when no doc_hint")
+	}
+	if strings.Contains(tc, "## Handoff") {
+		t.Error("should not contain handoff when no log-context")
 	}
 }
