@@ -145,7 +145,10 @@ func (c *ClaudeRunner) buildCommand(dir string, claudeArgs []string, toolsEnv ..
 		tools = tools + "," + strings.Join(c.SandboxTools, ",")
 	}
 
-	homeDir, _ := os.UserHomeDir()
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return "claude", claudeArgs // cannot build sandbox without home dir
+	}
 	wardenArgs := []string{
 		"run",
 		"--network",
