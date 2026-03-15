@@ -133,6 +133,21 @@ func runShellCmd(ctx context.Context, dir, command string, timeout time.Duration
 	return string(out), err
 }
 
+// runGHCmd runs a gh CLI command without shell interpolation.
+func runGHCmd(ctx context.Context, dir string, timeout time.Duration, args ...string) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "gh", args...)
+	cmd.Dir = dir
+	out, err := cmd.CombinedOutput()
+	return string(out), err
+}
+
+// buildGHPRArgs constructs the argument list for gh pr create.
+func buildGHPRArgs(title, body, base, branch string) []string {
+	return []string{"pr", "create", "--title", title, "--body", body, "--base", base, "--head", branch}
+}
+
 // Error types for primitive failures.
 
 // TransientError represents a temporary failure that may be retried.
@@ -189,7 +204,7 @@ func primitiveCITests(ctx context.Context, dir string, config map[string]any, st
 	case <-time.After(5 * time.Second):
 	}
 
-	out, err := runShellCmd(ctx, dir, fmt.Sprintf("gh run list --branch %s --limit 1 --json status,conclusion,databaseId", branch), 30*time.Second)
+	out, err := runGHCmd(ctx, dir, 30*time.Second, "run", "list", "--branch", branch, "--limit", "1", "--json", "status,conclusion,databaseId")
 	if err != nil {
 		return nil, &TransientError{Msg: fmt.Sprintf("ci-tests: gh run list failed: %v", err)}
 	}
@@ -241,7 +256,8 @@ func primitiveCreatePR(ctx context.Context, dir string, config map[string]any, s
 	title := generatePRTitle(goal)
 	body := buildPRBody(state)
 
-	out, err := runShellCmd(ctx, dir, fmt.Sprintf(`gh pr create --title %q --body %q --base %q --head %q`, title, body, base, branch), 60*time.Second)
+	args := buildGHPRArgs(title, body, base, branch)
+	out, err := runGHCmd(ctx, dir, 60*time.Second, args...)
 	if err != nil {
 		return nil, &TransientError{Msg: fmt.Sprintf("create-pr: gh pr create failed: %v\n%s", err, out)}
 	}
