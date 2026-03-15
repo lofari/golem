@@ -1,18 +1,34 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:xterm/xterm.dart';
 
+import '../providers/processes.dart';
 import '../theme.dart';
 
 /// Terminal tab in detail panel.
 /// For running steps: read-only stream output.
 /// For interactive sessions (golem plan): full xterm.
-class DetailTerminal extends StatelessWidget {
+class DetailTerminal extends ConsumerStatefulWidget {
   final String? processId;
 
   const DetailTerminal({super.key, this.processId});
 
   @override
+  ConsumerState<DetailTerminal> createState() => _DetailTerminalState();
+}
+
+class _DetailTerminalState extends ConsumerState<DetailTerminal> {
+  final _controller = TerminalController();
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    if (processId == null) {
+    if (widget.processId == null) {
       return const Center(
         child: Text(
           'No active session',
@@ -21,14 +37,27 @@ class DetailTerminal extends StatelessWidget {
       );
     }
 
-    // TODO: Wire xterm.dart terminal using existing ProcessTerminalNotifier
-    // from providers/processes.dart. For now, show placeholder.
+    final terminal = ref.watch(processTerminalProvider(widget.processId!));
+
     return Container(
       color: GolemTheme.bgPrimary,
-      padding: const EdgeInsets.all(16),
-      child: Text(
-        'Terminal attached to process $processId',
-        style: GolemTheme.monoStyle(fontSize: 12),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (!mounted) return;
+            final notifier = ref.read(
+              processTerminalProvider(widget.processId!).notifier,
+            );
+            notifier.sendResize(terminal.viewWidth, terminal.viewHeight);
+          });
+
+          return TerminalView(
+            terminal,
+            controller: _controller,
+            autofocus: false,
+            hardwareKeyboardOnly: true,
+          );
+        },
       ),
     );
   }

@@ -33,7 +33,15 @@ class ProjectInfoNotifier extends StateNotifier<ProjectInfo?> {
   }
 }
 
-// Project state (tasks, decisions, etc.)
+// Project state per project, keyed by project ID.
+final projectStateFamily =
+    StateNotifierProvider.family<ProjectStateNotifier, ProjectState?, String>(
+        (ref, projectId) {
+  final api = ref.read(apiClientProvider);
+  return ProjectStateNotifier(api, projectId);
+});
+
+// Convenience alias: state for the current single-project.
 final projectStateProvider = StateNotifierProvider<ProjectStateNotifier, ProjectState?>((ref) {
   final projectInfo = ref.watch(projectInfoProvider);
   final api = ref.read(apiClientProvider);

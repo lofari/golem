@@ -1,11 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../models/process.dart';
 import '../providers/connection.dart';
 import '../providers/processes.dart';
-import '../providers/project.dart';
 import '../providers/runs.dart';
+import '../models/process.dart';
 import '../theme.dart';
 import 'command_bar.dart';
 import 'detail_panel.dart';
@@ -29,10 +28,8 @@ class _ProjectWorkspaceState extends ConsumerState<ProjectWorkspace> {
   Future<void> _launchRun(String agent, String goal) async {
     try {
       final api = ref.read(apiClientProvider);
-      final projectInfo = ref.read(projectInfoProvider);
-      if (projectInfo == null) return;
       await api.launchProcess(
-        projectInfo.id,
+        widget.projectId,
         LaunchRequest(
           command: 'run $agent',
           config: LaunchConfig(),
@@ -60,6 +57,15 @@ class _ProjectWorkspaceState extends ConsumerState<ProjectWorkspace> {
         : projectRuns.isNotEmpty
             ? projectRuns.first
             : null;
+
+    // Find the process associated with the selected run.
+    final processes = ref.watch(processesProvider);
+    final processId = selectedRun != null
+        ? processes
+            .where((p) => p.runId == selectedRun.runId)
+            .firstOrNull
+            ?.id
+        : null;
 
     return Column(
       children: [
@@ -89,6 +95,7 @@ class _ProjectWorkspaceState extends ConsumerState<ProjectWorkspace> {
                 flex: 45,
                 child: DetailPanel(
                   selectedRun: selectedRun,
+                  processId: processId,
                   events: selectedRun != null
                       ? ref.watch(runEventsFamily(selectedRun.runId))
                       : const [],

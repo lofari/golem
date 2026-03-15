@@ -134,8 +134,26 @@ final runEventsFamily = Provider.family<List<EngineEvent>, String>((ref, runId) 
   return allEvents[runId] ?? const [];
 });
 
-/// Wires engine events from WebSocket into RunsNotifier and RunEventsNotifier.
-/// Watch this provider to activate the connection.
+/// Wires engine events from a specific project's WebSocket into RunsNotifier
+/// and RunEventsNotifier. Watch this provider for each open project tab.
+final engineEventWiringFamily = Provider.family<void, String>((ref, projectId) {
+  final projectState = ref.watch(projectStateFamily(projectId).notifier);
+  final runsNotifier = ref.read(runsProvider.notifier);
+  final eventsNotifier = ref.read(runEventsProvider.notifier);
+
+  projectState.onEngineEvent = (data) {
+    final event = EngineEvent.fromJson(data);
+    runsNotifier.processEvent(event);
+    eventsNotifier.addEvent(event);
+  };
+
+  ref.onDispose(() {
+    projectState.onEngineEvent = null;
+  });
+});
+
+/// Legacy single-project wiring. Watch this to activate the connection
+/// for the default project (from projectInfoProvider).
 final engineEventWiringProvider = Provider<void>((ref) {
   final projectState = ref.watch(projectStateProvider.notifier);
   final runsNotifier = ref.read(runsProvider.notifier);

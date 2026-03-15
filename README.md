@@ -194,9 +194,9 @@ golem plan --model opus
 
 ### `golem code`
 
-The core loop. Spawns autonomous Claude Code iterations until all tasks are done or limits are reached. Also available as `golem build` (alias).
+The core loop. By default uses the **blueprint engine** — a YAML pipeline executor with structured steps, control flow, and error handling. Also available as `golem build` (alias).
 
-When `engine: dsl` is set in config, `golem code` delegates to the DSL execution engine instead of the Go builder loop (see [DSL Agents](#dsl-agents) below).
+The engine can be changed via config: `engine: blueprint` (default), `engine: dsl` (Clojure), or `engine: legacy` (original Go builder loop).
 
 ```bash
 golem code
@@ -314,9 +314,19 @@ golem run fix-bug --goal "fix login timeout"
 
 The agent name can be a built-in agent or a project-local agent from `.ctx/agents/`.
 
+### `golem runs`
+
+View and attach to active or recent blueprint engine runs.
+
+```bash
+golem runs               # list all runs
+golem runs --active      # list only running
+golem runs attach <id>   # stream events from a run
+```
+
 ### `golem agents`
 
-Lists all available DSL agents (built-in and project-local).
+Lists all available agents (built-in YAML blueprints and project-local agents).
 
 ```bash
 golem agents
@@ -332,6 +342,17 @@ Built-in agents:
 Project agents:
   my-custom-flow       .ctx/agents/my-custom-flow.clj
 ```
+
+### `golem serve`
+
+Starts the golem API server standalone (without launching the desktop UI).
+
+```bash
+golem serve                    # default port :8314
+golem serve --addr :9000       # custom port
+```
+
+The server provides REST and WebSocket APIs for project state, process management, and real-time engine event streaming. The Flutter UI and other tools connect to this server.
 
 ### `golem session`
 
@@ -647,9 +668,63 @@ golem config set execution-history 5       # execution sessions to retain (defau
 golem config set lsp true                  # enable/disable LSP servers (default: true)
 ```
 
-## DSL Agents
+## Blueprint Agents
 
-golem includes an optional Clojure-based DSL for defining multi-step agent workflows as composable graphs. The DSL runs as a sidecar binary (`golem-dsl`) that communicates with the Go CLI via NDJSON events on stdout and shared filesystem state.
+golem uses YAML blueprints to define multi-step agent workflows. Blueprints support three step types (agentic, builtin, shell), control flow (while/when/if), error handling (retry/re-run/halt), and state contracts.
+
+### Built-in Blueprints
+
+| Agent | Description |
+|-------|-------------|
+| `build-feature` | Plan → implement → lint → test → review loop (with retry on needs-work) |
+| `fix-bug` | Similar to build-feature, optimized for bug fixes |
+| `one-shot` | Single iteration for quick tasks |
+
+Blueprint YAML files live in `templates/agents/` (built-in) or `.ctx/agents/` (project-local). Each step declares read/write contracts, and the engine validates them at compile time.
+
+### Blueprint YAML format
+
+```yaml
+name: my-agent
+initial-state: [goal]
+config:
+  lint-cmd: "go vet ./..."
+  test-cmd: "go test ./..."
+
+pipeline:
+  - step: plan
+    type: agentic
+    reads: [goal]
+    writes: [plan]
+    prompt: "Create a plan for: ${goal}"
+
+  - step: implement
+    type: agentic
+    reads: [goal, plan]
+    writes: [code, test-results]
+
+  - step: lint
+    type: builtin
+
+  - step: test
+    type: builtin
+
+  - while:
+      predicate: needs-work
+      max: 3
+      steps: [implement, review]
+
+errors:
+  transient:
+    action: retry
+    max: 2
+  contract-violation:
+    action: halt
+```
+
+## DSL Agents (Experimental)
+
+golem also includes an optional Clojure-based DSL for defining multi-step agent workflows as composable graphs. The DSL runs as a sidecar binary (`golem-dsl`) that communicates with the Go CLI via NDJSON events on stdout and shared filesystem state. The DSL achieves ~85% parity with YAML blueprints — it supports agentic steps, control flow, and error handling, but lacks shell steps and per-step configuration granularity.
 
 ### Architecture
 
@@ -668,7 +743,7 @@ golem run build-feature --goal "add auth"
 ### Configuration
 
 ```bash
-golem config set engine dsl              # use DSL engine (default: go)
+golem config set engine dsl              # use DSL engine (default: blueprint)
 golem config set dsl-command golem-dsl   # path to DSL binary
 golem config set agent build-feature     # default agent for golem code
 ```
