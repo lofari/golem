@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'theme.dart';
-import 'views/shell.dart';
+import 'views/app_shell.dart';
 
 void main() {
   runApp(const ProviderScope(child: GolemApp()));
@@ -16,7 +16,7 @@ class GolemApp extends StatelessWidget {
       title: 'Golem',
       debugShowCheckedModeBanner: false,
       theme: GolemTheme.dark(),
-      home: const ShellView(),
+      home: const AppShell(),
     );
   }
 }

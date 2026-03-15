@@ -1,0 +1,101 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+import '../models/process.dart';
+import '../providers/connection.dart';
+import '../providers/processes.dart';
+import '../providers/project.dart';
+import '../providers/runs.dart';
+import '../theme.dart';
+import 'command_bar.dart';
+import 'detail_panel.dart';
+import 'run_feed.dart';
+
+/// Project workspace: command bar (top) + run feed (left) + detail panel (right).
+class ProjectWorkspace extends ConsumerStatefulWidget {
+  final String projectId;
+
+  const ProjectWorkspace({super.key, required this.projectId});
+
+  @override
+  ConsumerState<ProjectWorkspace> createState() => _ProjectWorkspaceState();
+}
+
+class _ProjectWorkspaceState extends ConsumerState<ProjectWorkspace> {
+  String? _selectedRunId;
+
+  static const _defaultAgents = ['build-feature', 'one-shot', 'fix-bug'];
+
+  Future<void> _launchRun(String agent, String goal) async {
+    try {
+      final api = ref.read(apiClientProvider);
+      final projectInfo = ref.read(projectInfoProvider);
+      if (projectInfo == null) return;
+      await api.launchProcess(
+        projectInfo.id,
+        LaunchRequest(
+          command: 'run $agent',
+          config: LaunchConfig(),
+          agentName: agent,
+          goal: goal,
+        ),
+      );
+      ref.read(processesProvider.notifier).refresh();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to launch: $e')),
+        );
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final allRuns = ref.watch(runsProvider);
+    final projectRuns =
+        allRuns.where((r) => r.projectId == widget.projectId).toList();
+    final selectedRun = _selectedRunId != null
+        ? projectRuns.where((r) => r.runId == _selectedRunId).firstOrNull
+        : projectRuns.isNotEmpty
+            ? projectRuns.first
+            : null;
+
+    return Column(
+      children: [
+        CommandBar(
+          agents: _defaultAgents,
+          onLaunch: _launchRun,
+        ),
+        Expanded(
+          child: Row(
+            children: [
+              Expanded(
+                flex: 55,
+                child: Container(
+                  decoration: const BoxDecoration(
+                    border: Border(
+                        right: BorderSide(color: GolemTheme.border)),
+                  ),
+                  child: RunFeed(
+                    runs: projectRuns,
+                    selectedRunId: _selectedRunId,
+                    onSelect: (run) =>
+                        setState(() => _selectedRunId = run.runId),
+                  ),
+                ),
+              ),
+              Expanded(
+                flex: 45,
+                child: DetailPanel(
+                  selectedRun: selectedRun,
+                  events: const [],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
