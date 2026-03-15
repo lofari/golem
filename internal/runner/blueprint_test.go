@@ -4,6 +4,8 @@ import (
 	"os"
 	"strings"
 	"testing"
+
+	"github.com/lofari/golem/templates"
 )
 
 func TestParseBlueprint_ValidAgent(t *testing.T) {
@@ -288,5 +290,22 @@ steps:
 	_, err := ParseBlueprint(data)
 	if err == nil {
 		t.Fatal("expected error for invalid predicate expression")
+	}
+}
+
+func TestParseBuilderBlueprint(t *testing.T) {
+	data, err := templates.FS.ReadFile("agents/builder.yaml")
+	if err != nil {
+		t.Fatalf("reading builder.yaml: %v", err)
+	}
+	bp, err := ParseBlueprint(data)
+	if err != nil {
+		t.Fatalf("parsing builder.yaml: %v", err)
+	}
+	if err := bp.ValidateContracts(); err != nil {
+		t.Fatalf("contract validation: %v", err)
+	}
+	if bp.Name != "builder" {
+		t.Errorf("name = %q, want builder", bp.Name)
 	}
 }
