@@ -1,5 +1,0 @@
-{"type":"step-start","step":"implement","iteration":1,"agent":"build-feature"}
-{"type":"error","step":"implement","error-type":"transient","iteration":1,"action":"retry","attempt":1}
-{"type":"step-start","step":"implement","iteration":1,"agent":"build-feature","attempt":2}
-{"type":"step-end","step":"implement","state-version":1}
-{"type":"agent-done","agent":"build-feature","outcome":"complete","total-steps":1}
