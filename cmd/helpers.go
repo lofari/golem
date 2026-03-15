@@ -1,6 +1,9 @@
 package cmd
 
 import (
+	"fmt"
+	"os"
+
 	"github.com/spf13/cobra"
 
 	"github.com/lofari/golem/internal/config"
@@ -30,6 +33,7 @@ func addAgentFlags(cmd *cobra.Command) {
 	cmd.Flags().String("sandbox-memory", "", "sandbox memory limit (e.g., 8g)")
 	cmd.Flags().Bool("mcp", true, "enable golem MCP server for structured state updates")
 	cmd.Flags().Bool("no-context-map", false, "disable context map injection")
+	cmd.Flags().Bool("no-lsp", false, "disable LSP servers during sessions")
 	// Only add these if not already defined (run.go defines --goal separately)
 	if cmd.Flags().Lookup("goal") == nil {
 		cmd.Flags().String("goal", "", "goal for the blueprint engine (populates initial pipeline state)")
@@ -113,6 +117,44 @@ func resolveConfig(cmd *cobra.Command, dir string) resolvedConfig {
 	rc.DryRun, _ = cmd.Flags().GetBool("dry-run")
 	rc.Review, _ = cmd.Flags().GetBool("review")
 	return rc
+}
+
+// displayEngineEvents reads engine events and prints progress to stderr.
+// Run in a goroutine; returns when the channel is closed.
+func displayEngineEvents(events <-chan runner.EngineEvent) {
+	for ev := range events {
+		switch ev.Type {
+		case "pipeline-start":
+			fmt.Fprintf(os.Stderr, "golem: starting agent=%s goal=%q run=%s\n", ev.Agent, ev.Goal, ev.RunID)
+		case "step-start":
+			fmt.Fprintf(os.Stderr, "golem: [%s] %s starting...\n", ev.StepType, ev.Step)
+		case "step-end":
+			fmt.Fprintf(os.Stderr, "golem: [%s] %s %s (%.1fs)\n", ev.StepType, ev.Step, ev.Status, float64(ev.Duration)/1000)
+		case "loop-enter":
+			fmt.Fprintf(os.Stderr, "golem: loop %s iteration %d/%d\n", ev.Predicate, ev.Iteration, ev.Max)
+		case "loop-exit":
+			fmt.Fprintf(os.Stderr, "golem: loop %s exited (%s)\n", ev.Predicate, ev.Reason)
+		case "conditional-skip":
+			fmt.Fprintf(os.Stderr, "golem: skipped (predicate %s = false)\n", ev.Predicate)
+		case "error-retry":
+			fmt.Fprintf(os.Stderr, "golem: %s %s attempt %d (%s)\n", ev.ErrorType, ev.Step, ev.Attempt, ev.Action)
+		case "pipeline-end":
+			fmt.Fprintf(os.Stderr, "golem: pipeline %s (%.1fs)\n", ev.Status, float64(ev.Duration)/1000)
+		}
+	}
+}
+
+// printRunSummary prints the final state of a blueprint run.
+func printRunSummary(agentName, runID string, state map[string]any) {
+	fmt.Fprintf(os.Stderr, "\ngolem: run complete — %s (%s)\n", agentName, runID)
+	if pr, ok := state["pr"].(map[string]any); ok {
+		if url, ok := pr["url"].(string); ok {
+			fmt.Fprintf(os.Stderr, "golem: PR: %s\n", url)
+		}
+	}
+	if branch, ok := state["branch"].(string); ok {
+		fmt.Fprintf(os.Stderr, "golem: branch: %s\n", branch)
+	}
 }
 
 // newClaudeRunner creates a ClaudeRunner from resolved config.

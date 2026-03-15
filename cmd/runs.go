@@ -208,7 +208,7 @@ var runsCleanCmd = &cobra.Command{
 
 var runsWatchCmd = &cobra.Command{
 	Use:   "watch <run-id>",
-	Short: "Tail events from a run",
+	Short: "Show event timeline for a run (one-shot read, not a live tail)",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		dir, _ := os.Getwd()

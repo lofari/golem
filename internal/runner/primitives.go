@@ -183,7 +183,11 @@ func primitiveCITests(ctx context.Context, dir string, config map[string]any, st
 	}
 
 	// Poll for workflow run (simplified: check once after short delay)
-	time.Sleep(5 * time.Second)
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case <-time.After(5 * time.Second):
+	}
 
 	out, err := runShellCmd(ctx, dir, fmt.Sprintf("gh run list --branch %s --limit 1 --json status,conclusion,databaseId", branch), 30*time.Second)
 	if err != nil {
@@ -237,7 +241,7 @@ func primitiveCreatePR(ctx context.Context, dir string, config map[string]any, s
 	title := generatePRTitle(goal)
 	body := buildPRBody(state)
 
-	out, err := runShellCmd(ctx, dir, fmt.Sprintf(`gh pr create --title %q --body %q --base %s --head %s`, title, body, base, branch), 60*time.Second)
+	out, err := runShellCmd(ctx, dir, fmt.Sprintf(`gh pr create --title %q --body %q --base %q --head %q`, title, body, base, branch), 60*time.Second)
 	if err != nil {
 		return nil, &TransientError{Msg: fmt.Sprintf("create-pr: gh pr create failed: %v\n%s", err, out)}
 	}

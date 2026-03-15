@@ -304,6 +304,127 @@ func TestEngine_Integration_OneShot(t *testing.T) {
 	}
 }
 
+func TestEngine_ProjectContextInjection(t *testing.T) {
+	dir := setupGitRepo(t)
+	os.MkdirAll(filepath.Join(dir, ".ctx", "runs"), 0755)
+
+	stateYAML := `project:
+  name: testproj
+  summary: test
+  stack: go
+decisions:
+  - what: use Go
+    why: fast
+    when: "2026-03-01"
+pitfalls:
+  - watch out for X
+tasks: []
+`
+	os.WriteFile(filepath.Join(dir, ".ctx", "state.yaml"), []byte(stateYAML), 0644)
+
+	step := &Step{
+		Name: "implement", Type: StepTypeAgentic,
+		Reads: []string{"goal"}, OptionalReads: []string{"project-context"},
+		Writes: []string{"code"}, Prompt: "Goal: ${goal}\nContext: ${project-context}",
+	}
+	bp := &Blueprint{
+		Name: "test", InitialState: []string{"goal"}, Config: map[string]any{},
+		Errors: ErrorHandlers{ContractViolation: ErrorHandler{Action: "halt"}},
+	}
+	bp.pipeline = &Pipeline{
+		Nodes:    []PipelineNode{{Step: step}},
+		StepDefs: map[string]*Step{},
+	}
+
+	mock := &smartMockRunner{
+		responses: func(step string, callNum int) MockResponse {
+			return MockResponse{SessionOutput: map[string]any{"code": "done"}}
+		},
+	}
+
+	e := NewEngine(EngineConfig{
+		Dir: dir, AgentName: "test", Goal: "Test goal",
+		Blueprint: bp, Config: map[string]any{}, Runner: mock, Model: "test",
+	})
+
+	_, err := e.Run(context.Background())
+	if err != nil {
+		t.Fatalf("engine error: %v", err)
+	}
+
+	state := e.State()
+	pc, ok := state["project-context"].(string)
+	if !ok {
+		t.Fatal("project-context should be in engine state")
+	}
+	if !strings.Contains(pc, "use Go") {
+		t.Error("project-context should contain decision 'use Go'")
+	}
+}
+
+func TestEngine_Integration_WithProjectContext(t *testing.T) {
+	dir := setupGitRepo(t)
+	os.MkdirAll(filepath.Join(dir, ".ctx", "runs"), 0755)
+
+	stateYAML := `project:
+  name: testproj
+  summary: test
+  stack: go
+decisions:
+  - what: use blueprint engine
+    why: better execution semantics
+    when: "2026-03-14"
+pitfalls:
+  - what: MCP server needs .ctx/ dir
+    fix: ensure init is run first
+tasks: []
+`
+	os.WriteFile(filepath.Join(dir, ".ctx", "state.yaml"), []byte(stateYAML), 0644)
+
+	data, err := templates.FS.ReadFile("agents/build-feature.yaml")
+	if err != nil {
+		t.Fatalf("read agent: %v", err)
+	}
+	bp, err := ParseBlueprint(data)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+
+	mock := &smartMockRunner{
+		responses: func(step string, callNum int) MockResponse {
+			if step == "review" {
+				return MockResponse{SessionOutput: map[string]any{"review-feedback": map[string]any{"verdict": "approved"}}}
+			}
+			if step == "plan" {
+				return MockResponse{SessionOutput: map[string]any{"plan": []any{map[string]any{"step": 1, "desc": "do it"}}}}
+			}
+			return MockResponse{SessionOutput: map[string]any{"test-results": map[string]any{"status": "pass"}}}
+		},
+	}
+
+	config := map[string]any{"lint-cmd": "true", "test-cmd": "true", "ci-enabled": false}
+	e := NewEngine(EngineConfig{
+		Dir: dir, AgentName: "build-feature", Goal: "Add auth",
+		Blueprint: bp, Config: config, Runner: mock, Model: "test",
+	})
+
+	state, err := e.Run(context.Background())
+	if err != nil {
+		t.Fatalf("engine error: %v", err)
+	}
+
+	pc, ok := state["project-context"].(string)
+	if !ok {
+		t.Fatal("project-context should be in final state")
+	}
+	if !strings.Contains(pc, "blueprint engine") {
+		t.Error("project-context should contain decision 'use blueprint engine'")
+	}
+	if !strings.Contains(pc, "MCP server") {
+		t.Error("project-context should contain pitfall about MCP server")
+	}
+}
+
 func TestEngine_Integration_BuildFeatureLoop(t *testing.T) {
 	dir := setupGitRepo(t)
 	os.MkdirAll(filepath.Join(dir, ".ctx", "runs"), 0755)

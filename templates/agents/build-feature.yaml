@@ -39,7 +39,8 @@ steps:
 
   - review:
       type: agentic
-      reads: [code, test-results, lint-results]
+      reads: [code, test-results]
+      optional-reads: [lint-results]
       writes: [review-feedback]
       tools: [semantic_search, find_callers, find_dependencies]
 

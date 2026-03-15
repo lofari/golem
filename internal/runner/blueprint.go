@@ -3,6 +3,7 @@ package runner
 import (
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -158,32 +159,40 @@ var validControlFlowFields = map[string]bool{
 
 // sliceContains checks if a string slice contains a value.
 func sliceContains(slice []string, val string) bool {
-	for _, s := range slice {
-		if s == val {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(slice, val)
 }
 
 func isControlFlow(name string) bool {
 	return name == ControlWhile || name == ControlWhen || name == ControlIf
 }
 
-// AllSteps returns all steps in the pipeline, including those inside control flow nodes.
+// AllSteps returns all steps in the pipeline, including those inside nested control flow nodes.
 func (p *Pipeline) AllSteps() []Step {
 	var steps []Step
 	for _, node := range p.Nodes {
-		if node.Step != nil {
-			steps = append(steps, *node.Step)
-		}
-		if node.ControlFlow != nil {
-			for _, s := range node.ControlFlow.InlineSteps {
-				steps = append(steps, s)
-			}
-		}
+		collectSteps(node, &steps)
 	}
 	return steps
+}
+
+func collectSteps(node PipelineNode, steps *[]Step) {
+	if node.Step != nil {
+		*steps = append(*steps, *node.Step)
+	}
+	if node.ControlFlow != nil {
+		for _, s := range node.ControlFlow.InlineSteps {
+			*steps = append(*steps, s)
+		}
+		for _, sub := range node.ControlFlow.SubNodes {
+			collectSteps(sub, steps)
+		}
+		for _, sub := range node.ControlFlow.ThenNodes {
+			collectSteps(sub, steps)
+		}
+		for _, sub := range node.ControlFlow.ElseNodes {
+			collectSteps(sub, steps)
+		}
+	}
 }
 
 // ParseBlueprint parses and validates a blueprint YAML document.
@@ -200,6 +209,11 @@ func ParseBlueprint(data []byte) (*Blueprint, error) {
 		return nil, fmt.Errorf("blueprint: parse error: %w", err)
 	}
 
+	// Validate top-level fields
+	if err := validateTopLevelFields(&doc); err != nil {
+		return nil, err
+	}
+
 	// Parse steps from yaml.Node tree
 	steps, pipeline, err := parseSteps(&doc)
 	if err != nil {
@@ -208,7 +222,80 @@ func ParseBlueprint(data []byte) (*Blueprint, error) {
 	bp.Steps = steps
 	bp.pipeline = pipeline
 
+	// Validate error handler actions
+	if err := validateErrorHandlers(&bp.Errors); err != nil {
+		return nil, err
+	}
+
 	return &bp, nil
+}
+
+// validTopLevelFields is the set of valid fields at the document root.
+var validTopLevelFields = map[string]bool{
+	"name":          true,
+	"description":   true,
+	"initial-state": true,
+	"config":        true,
+	"steps":         true,
+	"errors":        true,
+}
+
+// knownTopLevelFields maps common typos to the correct field name.
+var knownTopLevelFields = map[string]string{
+	"intial-state": "initial-state",
+	"inital-state": "initial-state",
+	"step":         "steps",
+	"error":        "errors",
+	"configs":      "config",
+	"desc":         "description",
+}
+
+func validateTopLevelFields(doc *yaml.Node) error {
+	if doc.Kind != yaml.DocumentNode || len(doc.Content) == 0 {
+		return nil
+	}
+	root := doc.Content[0]
+	if root.Kind != yaml.MappingNode {
+		return nil
+	}
+	var errs []string
+	for i := 0; i < len(root.Content)-1; i += 2 {
+		field := root.Content[i].Value
+		if validTopLevelFields[field] {
+			continue
+		}
+		if suggestion, ok := knownTopLevelFields[field]; ok {
+			errs = append(errs, fmt.Sprintf("unknown field %q (did you mean %q?)", field, suggestion))
+		} else {
+			errs = append(errs, fmt.Sprintf("unknown field %q", field))
+		}
+	}
+	if len(errs) > 0 {
+		return fmt.Errorf("blueprint: %s", strings.Join(errs, "; "))
+	}
+	return nil
+}
+
+// validErrorActions is the set of valid error handler action values.
+var validErrorActions = map[string]bool{
+	"":      true, // empty means use default
+	"retry": true,
+	"re-run": true,
+	"halt":  true,
+}
+
+func validateErrorHandlers(eh *ErrorHandlers) error {
+	handlers := map[string]string{
+		"transient":          eh.Transient.Action,
+		"malformed-output":   eh.MalformedOutput.Action,
+		"contract-violation": eh.ContractViolation.Action,
+	}
+	for name, action := range handlers {
+		if !validErrorActions[action] {
+			return fmt.Errorf("blueprint: errors.%s: invalid action %q (valid: retry, re-run, halt)", name, action)
+		}
+	}
+	return nil
 }
 
 // parseSteps walks the yaml.Node tree to extract steps with strict field validation.
@@ -568,12 +655,22 @@ func RenderStepPrompt(tmpl string, reads, optionalReads []string, state, config 
 	result = strings.ReplaceAll(result, "${run.id}", runID)
 
 	// Check for unresolved tokens
-	if idx := strings.Index(result, "${"); idx != -1 {
-		end := strings.Index(result[idx:], "}")
-		if end != -1 {
-			token := result[idx : idx+end+1]
-			return "", fmt.Errorf("template error: unresolved token %s (typo in template?)", token)
+	var unresolved []string
+	remaining := result
+	for {
+		idx := strings.Index(remaining, "${")
+		if idx == -1 {
+			break
 		}
+		end := strings.Index(remaining[idx:], "}")
+		if end == -1 {
+			break
+		}
+		unresolved = append(unresolved, remaining[idx:idx+end+1])
+		remaining = remaining[idx+end+1:]
+	}
+	if len(unresolved) > 0 {
+		return "", fmt.Errorf("template error: unresolved tokens %s (typo in template?)", strings.Join(unresolved, ", "))
 	}
 
 	return result, nil

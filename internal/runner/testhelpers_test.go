@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -26,12 +27,7 @@ type MockResponse struct {
 
 // containsStr checks if a string slice contains a value.
 func containsStr(slice []string, val string) bool {
-	for _, s := range slice {
-		if s == val {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(slice, val)
 }
 
 // setupGitRepo creates a temporary git repo with an initial commit.

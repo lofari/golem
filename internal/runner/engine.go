@@ -2,9 +2,12 @@ package runner
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -25,6 +28,10 @@ type EngineConfig struct {
 	Model     string
 	Events    chan<- EngineEvent
 	Verbose   bool
+	// Context integration
+	MCPEnabled bool
+	LSPEnabled bool
+	GraphPath  string // defaults to ".ctx/graph.db" if empty
 }
 
 // EngineEvent represents a structured event emitted during engine execution.
@@ -61,7 +68,9 @@ type Engine struct {
 // NewEngine creates a new engine instance with an initial state.
 func NewEngine(cfg EngineConfig) *Engine {
 	ts := time.Now().Format("20060102-150405")
-	runID := "run-" + ts
+	var suffix [3]byte
+	rand.Read(suffix[:])
+	runID := "run-" + ts + "-" + hex.EncodeToString(suffix[:])
 
 	e := &Engine{
 		RunID: runID,
@@ -84,8 +93,12 @@ func (e *Engine) Run(ctx context.Context) (map[string]any, error) {
 	}
 
 	currentLink := filepath.Join(e.cfg.Dir, ".ctx", "runs", "current")
-	os.Remove(currentLink)
-	os.Symlink(e.runDir, currentLink)
+	if err := os.Remove(currentLink); err != nil && !os.IsNotExist(err) {
+		log.Printf("warning: could not remove symlink %s: %v", currentLink, err)
+	}
+	if err := os.Symlink(e.runDir, currentLink); err != nil {
+		log.Printf("warning: could not create symlink %s: %v", currentLink, err)
+	}
 	defer os.Remove(currentLink)
 
 	var err error
@@ -95,6 +108,31 @@ func (e *Engine) Run(ctx context.Context) (map[string]any, error) {
 	}
 	defer e.logFile.Close()
 
+	// Context integration
+	injectProjectContext(e.cfg.Dir, e.state)
+
+	if e.cfg.MCPEnabled {
+		if cr, ok := e.cfg.Runner.(*ClaudeRunner); ok {
+			if err := setupMCP(e.cfg.Dir, cr, e.cfg.LSPEnabled); err != nil {
+				log.Printf("golem: warning: MCP setup failed: %v", err)
+			}
+		}
+	}
+
+	// Graph sync
+	if err := syncGraph(e.cfg.Dir, e.cfg.GraphPath); err != nil {
+		log.Printf("golem: warning: graph sync: %v", err)
+	}
+
+	// Execution collector
+	collectorCleanup := setupCollector(e.cfg.Dir, e.cfg.GraphPath, e.cfg.Runner, 5)
+	var pipelineStatus string
+	if collectorCleanup != nil {
+		defer func() {
+			collectorCleanup(pipelineStatus)
+		}()
+	}
+
 	e.saveState()
 	e.emit(EngineEvent{Type: "pipeline-start", Agent: e.cfg.AgentName, Goal: e.cfg.Goal, RunID: e.RunID})
 
@@ -102,11 +140,13 @@ func (e *Engine) Run(ctx context.Context) (map[string]any, error) {
 
 	for _, node := range e.cfg.Blueprint.pipeline.Nodes {
 		if err := e.execNode(ctx, node); err != nil {
+			pipelineStatus = "failed"
 			e.emit(EngineEvent{Type: "pipeline-end", Status: "error", Duration: time.Since(start).Milliseconds(), RunID: e.RunID})
 			return e.state, err
 		}
 	}
 
+	pipelineStatus = "completed"
 	e.emit(EngineEvent{Type: "pipeline-end", Status: "success", Duration: time.Since(start).Milliseconds(), RunID: e.RunID})
 	return e.state, nil
 }
@@ -125,6 +165,7 @@ func (e *Engine) emit(ev EngineEvent) {
 		select {
 		case e.cfg.Events <- ev:
 		default:
+			log.Printf("warning: event channel full, dropping event type=%s step=%s", ev.Type, ev.Step)
 		}
 	}
 }
@@ -206,8 +247,8 @@ func (e *Engine) readSessionOutput(step *Step) error {
 	return nil
 }
 
-func (e *Engine) detectCodeChanges() {
-	cmd := exec.CommandContext(context.Background(), "git", "diff", "--name-only", "HEAD")
+func (e *Engine) detectCodeChanges(ctx context.Context) {
+	cmd := exec.CommandContext(ctx, "git", "diff", "--name-only", "HEAD")
 	cmd.Dir = e.cfg.Dir
 	out, err := cmd.Output()
 	if err != nil {
@@ -217,7 +258,7 @@ func (e *Engine) detectCodeChanges() {
 	if len(files) == 1 && files[0] == "" {
 		files = nil
 	}
-	statCmd := exec.CommandContext(context.Background(), "git", "diff", "--stat", "HEAD")
+	statCmd := exec.CommandContext(ctx, "git", "diff", "--stat", "HEAD")
 	statCmd.Dir = e.cfg.Dir
 	statOut, _ := statCmd.Output()
 
@@ -305,7 +346,7 @@ func (e *Engine) execAgenticStep(ctx context.Context, step *Step) error {
 	}
 
 	if sliceContains(step.Writes, "code") {
-		e.detectCodeChanges()
+		e.detectCodeChanges(ctx)
 	}
 
 	return nil

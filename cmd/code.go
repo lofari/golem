@@ -50,23 +50,29 @@ var codeCmd = &cobra.Command{
 			cr := newClaudeRunner(rc)
 			events := make(chan runner.EngineEvent, 100)
 
+			go displayEngineEvents(events)
+
 			e := runner.NewEngine(runner.EngineConfig{
-				Dir:       dir,
-				AgentName: agentName,
-				Goal:      rc.Goal,
-				Blueprint: bp,
-				Config:    mergedConfig,
-				Runner:    cr,
-				Model:     rc.Model,
-				Events:    events,
-				Verbose:   rc.Verbose,
+				Dir:        dir,
+				AgentName:  agentName,
+				Goal:       rc.Goal,
+				Blueprint:  bp,
+				Config:     mergedConfig,
+				Runner:     cr,
+				Model:      rc.Model,
+				Events:     events,
+				Verbose:    rc.Verbose,
+				MCPEnabled: rc.MCP,
+				LSPEnabled: rc.LSP,
 			})
 
 			state, err := e.Run(ctx)
+			close(events)
 			if err != nil {
 				return fmt.Errorf("blueprint engine: %w", err)
 			}
-			_ = state
+
+			printRunSummary(agentName, e.RunID, state)
 			return nil
 		}
 
@@ -163,5 +169,4 @@ func init() {
 	addAgentFlags(codeCmd)
 	codeCmd.Flags().Bool("review", false, "run review pass after builder completes")
 	codeCmd.Flags().Int("parallel", 1, "max parallel task sessions (1 = sequential)")
-	codeCmd.Flags().Bool("no-lsp", false, "disable LSP servers during sessions")
 }
