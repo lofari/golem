@@ -357,6 +357,153 @@ func buildContextMapForTask(dir, taskName, taskNotes string, config map[string]a
 	return ""
 }
 
+// primitiveStrategyEval evaluates iteration strategy and sets _error_context or _halt.
+func primitiveStrategyEval(_ context.Context, dir string, config map[string]any, pipelineState map[string]any) (PrimitiveResult, error) {
+	lc, _ := pipelineState["log-context"].(map[string]any)
+	agentLogged, _ := lc["agent_logged"].(bool)
+
+	// Write synthetic log session if agent didn't log
+	if !agentLogged {
+		taskName := "unknown"
+		if ct, ok := pipelineState["current-task"].(map[string]any); ok {
+			if n, ok := ct["name"].(string); ok {
+				taskName = n
+			}
+		}
+		golemctx.AppendSession(dir, golemctx.Session{
+			Task:    taskName,
+			Outcome: "error",
+			Summary: "Agent session completed but did not call log_session MCP tool",
+		})
+	}
+
+	// Always clear _error_context first
+	result := PrimitiveResult{"_error_context": ""}
+
+	// Check max-iterations
+	maxIter := 20
+	if config != nil {
+		if m, ok := config["max-iterations"].(int); ok && m > 0 {
+			maxIter = m
+		}
+	}
+	iteration, _ := lc["iteration"].(int)
+	if iteration >= maxIter {
+		pipelineState["_halt"] = true
+		return result, nil
+	}
+
+	// Read full log for strategy analysis
+	log, err := golemctx.ReadLog(dir)
+	if err != nil || len(log.Sessions) == 0 {
+		return result, nil
+	}
+
+	last := log.Sessions[len(log.Sessions)-1]
+
+	// Thrashing: same task 3+ consecutive times
+	if len(log.Sessions) >= 3 {
+		last3 := log.Sessions[len(log.Sessions)-3:]
+		task := last3[0].Task
+		if task != "" && last3[1].Task == task && last3[2].Task == task {
+			markTaskBlocked(dir, task, "auto-skipped: attempted 3 consecutive iterations without completion")
+			result["_error_context"] = fmt.Sprintf("## Strategy Override\nTask %q has been attempted for 3 consecutive iterations without completion. It has been skipped. Work on a different task.\n", task)
+			return result, nil
+		}
+	}
+
+	// Repeated failure
+	if isFailedOutcome(last.Outcome) && last.Task != "" {
+		failCount := 0
+		for i := len(log.Sessions) - 1; i >= 0 && log.Sessions[i].Task == last.Task; i-- {
+			if isFailedOutcome(log.Sessions[i].Outcome) {
+				failCount++
+			}
+		}
+		if failCount >= 2 {
+			markTaskBlocked(dir, last.Task, fmt.Sprintf("auto-skipped: failed %d times", failCount))
+			result["_error_context"] = fmt.Sprintf("## Strategy Override\nTask %q has failed %d times and has been skipped. Work on a different task.\n", last.Task, failCount)
+			return result, nil
+		}
+		if failCount == 1 {
+			summary := last.Summary
+			if summary == "" {
+				summary = last.Outcome
+			}
+			result["_error_context"] = fmt.Sprintf("## Previous Iteration Context\nThe previous iteration attempted task %q but did not complete it. Outcome: %s.\n\nSummary: %s\n\nTry a different approach.\n", last.Task, last.Outcome, summary)
+			return result, nil
+		}
+	}
+
+	// Unproductive streak
+	unproductiveCount := 0
+	for i := len(log.Sessions) - 1; i >= 0; i-- {
+		if log.Sessions[i].Outcome == "unproductive" {
+			unproductiveCount++
+		} else {
+			break
+		}
+	}
+	if unproductiveCount >= 3 {
+		pipelineState["_halt"] = true
+		return result, nil
+	}
+	if unproductiveCount >= 2 {
+		result["_error_context"] = fmt.Sprintf("## Warning\nThe last %d iterations produced no meaningful progress. Focus on making concrete, testable changes. If you are stuck, consider working on a different task.\n", unproductiveCount)
+		return result, nil
+	}
+
+	// Deadlock: all remaining tasks blocked or depend on blocked
+	tasksRaw, _ := pipelineState["tasks"].([]any)
+	if len(tasksRaw) > 0 {
+		doneSet := make(map[string]bool)
+		for _, t := range tasksRaw {
+			tm, _ := t.(map[string]any)
+			if tm["status"] == "done" {
+				name, _ := tm["name"].(string)
+				doneSet[name] = true
+			}
+		}
+		allBlocked := true
+		hasRemaining := false
+		for _, t := range tasksRaw {
+			tm, _ := t.(map[string]any)
+			status, _ := tm["status"].(string)
+			if status == "done" {
+				continue
+			}
+			hasRemaining = true
+			if status == "blocked" {
+				continue
+			}
+			if depsOK(tm, doneSet) {
+				allBlocked = false
+				break
+			}
+		}
+		if hasRemaining && allBlocked {
+			pipelineState["_halt"] = true
+		}
+	}
+
+	return result, nil
+}
+
+// markTaskBlocked sets a task to blocked status in state.yaml.
+func markTaskBlocked(dir, taskName, reason string) {
+	state, err := golemctx.ReadState(dir)
+	if err != nil {
+		return
+	}
+	for i := range state.Tasks {
+		if state.Tasks[i].Name == taskName && state.Tasks[i].Status != "done" {
+			state.Tasks[i].Status = "blocked"
+			state.Tasks[i].BlockedReason = reason
+		}
+	}
+	golemctx.WriteState(dir, state)
+}
+
 // gitHead returns the current HEAD commit hash.
 func gitHead(dir string) string {
 	cmd := exec.Command("git", "rev-parse", "HEAD")

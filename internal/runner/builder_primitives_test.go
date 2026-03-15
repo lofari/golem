@@ -423,6 +423,89 @@ func TestPrimitiveBuildContext(t *testing.T) {
 	}
 }
 
+func TestPrimitiveStrategyEval_Continue(t *testing.T) {
+	dir := setupTestDir(t)
+	state := map[string]any{
+		"tasks": []any{
+			map[string]any{"name": "t1", "status": "todo"},
+		},
+		"log-context": map[string]any{
+			"last_task":    "t0",
+			"last_outcome": "done",
+			"iteration":    1,
+			"agent_logged": true,
+		},
+	}
+
+	result, err := primitiveStrategyEval(nil, dir, map[string]any{"max-iterations": 20}, state)
+	if err != nil {
+		t.Fatalf("strategy-eval: %v", err)
+	}
+	ec, _ := result["_error_context"].(string)
+	if ec != "" {
+		t.Errorf("_error_context should be empty on continue, got %q", ec)
+	}
+	if state["_halt"] != nil {
+		t.Error("_halt should not be set on continue")
+	}
+}
+
+func TestPrimitiveStrategyEval_MaxIterations(t *testing.T) {
+	dir := setupTestDir(t)
+	state := map[string]any{
+		"tasks": []any{
+			map[string]any{"name": "t1", "status": "todo"},
+		},
+		"log-context": map[string]any{
+			"last_task":    "t1",
+			"last_outcome": "done",
+			"iteration":    20,
+			"agent_logged": true,
+		},
+	}
+
+	_, err := primitiveStrategyEval(nil, dir, map[string]any{"max-iterations": 20}, state)
+	if err != nil {
+		t.Fatalf("strategy-eval: %v", err)
+	}
+	if state["_halt"] != true {
+		t.Error("expected _halt to be set when max iterations reached")
+	}
+}
+
+func TestPrimitiveStrategyEval_SyntheticLog(t *testing.T) {
+	dir := setupTestDir(t)
+	gitInitTestRepo(t, dir)
+	state := map[string]any{
+		"current-task": map[string]any{"name": "t2"},
+		"tasks": []any{
+			map[string]any{"name": "t2", "status": "todo"},
+		},
+		"log-context": map[string]any{
+			"last_task":    "t1",
+			"last_outcome": "done",
+			"iteration":    1,
+			"agent_logged": false,
+		},
+	}
+
+	_, err := primitiveStrategyEval(nil, dir, map[string]any{"max-iterations": 20}, state)
+	if err != nil {
+		t.Fatalf("strategy-eval: %v", err)
+	}
+
+	log, _ := golemctx.ReadLog(dir)
+	if len(log.Sessions) != 2 {
+		t.Errorf("expected 2 sessions (1 original + 1 synthetic), got %d", len(log.Sessions))
+	}
+	if len(log.Sessions) >= 2 {
+		last := log.Sessions[len(log.Sessions)-1]
+		if last.Outcome != "error" {
+			t.Errorf("synthetic session outcome = %q, want error", last.Outcome)
+		}
+	}
+}
+
 func TestPrimitiveBuildContext_MinimalState(t *testing.T) {
 	state := map[string]any{
 		"current-task": map[string]any{

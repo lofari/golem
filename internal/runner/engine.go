@@ -375,6 +375,8 @@ func (e *Engine) execBuiltinStep(ctx context.Context, step *Step) error {
 		result, err = primitivePickTask(ctx, e.cfg.Dir, e.cfg.Config, e.state)
 	case "build-context":
 		result, err = primitiveBuildContext(ctx, e.cfg.Dir, e.cfg.Config, e.state)
+	case "strategy-eval":
+		result, err = primitiveStrategyEval(ctx, e.cfg.Dir, e.cfg.Config, e.state)
 	default:
 		return fmt.Errorf("unknown builtin primitive: %s", step.Name)
 	}
