@@ -22,7 +22,6 @@ func TestPrintStatus(t *testing.T) {
 		},
 		Decisions: []ctx.Decision{{What: "d1"}, {What: "d2"}},
 		Pitfalls:  []ctx.Pitfall{{What: "p1"}},
-		Locked:    []ctx.Lock{{Path: "src/auth/"}},
 	}
 
 	PrintStatus(&buf, state, 5)

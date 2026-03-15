@@ -27,6 +27,11 @@ type Config struct {
 	ExecutionHistory int      `yaml:"execution-history" json:"execution-history"`
 	ContextMap       bool     `yaml:"context-map" json:"context-map"`
 	ContextMapLimit  int      `yaml:"context-map-limit" json:"context-map-limit"`
+	LSP              bool     `yaml:"lsp" json:"lsp"`
+	Engine           string                 `yaml:"engine" json:"engine"`
+	DSLCommand       string                 `yaml:"dsl-command" json:"dsl-command"`
+	Agent            string                 `yaml:"agent" json:"agent"`
+	AgentOpts        map[string]interface{} `yaml:"agent-opts" json:"agent-opts,omitempty"`
 }
 
 // Defaults returns a Config with built-in default values.
@@ -39,6 +44,10 @@ func Defaults() Config {
 		ExecutionHistory: 5,
 		ContextMap:       true,
 		ContextMapLimit:  15,
+		LSP:             true,
+		Engine:          "go",
+		DSLCommand:      "golem-dsl",
+		Agent:           "build-feature",
 	}
 }
 
@@ -93,6 +102,11 @@ type configLayer struct {
 	ExecutionHistory *int    `yaml:"execution-history"`
 	ContextMap       *bool   `yaml:"context-map"`
 	ContextMapLimit  *int    `yaml:"context-map-limit"`
+	LSP              *bool   `yaml:"lsp"`
+	Engine           *string                `yaml:"engine"`
+	DSLCommand       *string                `yaml:"dsl-command"`
+	Agent            *string                `yaml:"agent"`
+	AgentOpts        map[string]interface{} `yaml:"agent-opts"`
 }
 
 func readFile(path string) (configLayer, error) {
@@ -147,6 +161,21 @@ func merge(base Config, layer configLayer) Config {
 	}
 	if layer.ContextMapLimit != nil {
 		base.ContextMapLimit = *layer.ContextMapLimit
+	}
+	if layer.LSP != nil {
+		base.LSP = *layer.LSP
+	}
+	if layer.Engine != nil {
+		base.Engine = *layer.Engine
+	}
+	if layer.DSLCommand != nil {
+		base.DSLCommand = *layer.DSLCommand
+	}
+	if layer.Agent != nil {
+		base.Agent = *layer.Agent
+	}
+	if layer.AgentOpts != nil {
+		base.AgentOpts = layer.AgentOpts
 	}
 	return base
 }
@@ -214,6 +243,14 @@ func GetValue(cfg Config, key string) (string, error) {
 		return strconv.FormatBool(cfg.ContextMap), nil
 	case "context-map-limit":
 		return strconv.Itoa(cfg.ContextMapLimit), nil
+	case "lsp":
+		return strconv.FormatBool(cfg.LSP), nil
+	case "engine":
+		return cfg.Engine, nil
+	case "dsl-command":
+		return cfg.DSLCommand, nil
+	case "agent":
+		return cfg.Agent, nil
 	default:
 		return "", fmt.Errorf("unknown config key: %q", key)
 	}
@@ -247,6 +284,11 @@ func PrintConfig(w io.Writer, cfg Config) {
 	fmt.Fprintf(w, "execution-history: %d\n", cfg.ExecutionHistory)
 	fmt.Fprintf(w, "context-map: %v\n", cfg.ContextMap)
 	fmt.Fprintf(w, "context-map-limit: %d\n", cfg.ContextMapLimit)
+	fmt.Fprintf(w, "lsp: %v\n", cfg.LSP)
+	fmt.Fprintf(w, "engine: %s\n", cfg.Engine)
+	if cfg.DSLCommand != "golem-dsl" {
+		fmt.Fprintf(w, "dsl-command: %s\n", cfg.DSLCommand)
+	}
 }
 
 // KeyInfo describes a config key for the interactive wizard.
@@ -272,6 +314,10 @@ func Keys() []KeyInfo {
 		{"execution-history", "number of execution sessions to retain (default 5)"},
 		{"context-map", "enable context map injection (true/false)"},
 		{"context-map-limit", "max symbols in context map (default 15)"},
+		{"lsp", "enable LSP servers for code intelligence (true/false)"},
+		{"engine", "orchestration engine: go or dsl (default: go)"},
+		{"dsl-command", "path to golem-dsl binary (default: golem-dsl)"},
+		{"agent", "default DSL agent name (default: build-feature)"},
 	}
 }
 

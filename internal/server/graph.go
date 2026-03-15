@@ -120,8 +120,6 @@ type GraphStatsResponse struct {
 	EmbeddingCount int            `json:"embeddingCount"`
 	EmbedModel     string         `json:"embedModel,omitempty"`
 	LastIndexed    string         `json:"lastIndexed,omitempty"`
-	CommitCount    int            `json:"commitCount"`
-	AuthorCount    int            `json:"authorCount"`
 	CoChangeCount  int            `json:"coChangeCount"`
 	ExecutionCount int            `json:"executionCount"`
 }
@@ -155,8 +153,6 @@ func (s *Server) handleGraphStats(w http.ResponseWriter, r *http.Request) {
 	resp.EmbeddingCount, _ = store.EmbeddingCount()
 	resp.EmbedModel, _ = store.GetMeta("embed_model")
 	resp.LastIndexed, _ = store.GetMeta("last_indexed")
-	resp.CommitCount, _ = store.CommitCount()
-	resp.AuthorCount, _ = store.AuthorCount()
 	resp.CoChangeCount, _ = store.CoChangedCount()
 	resp.ExecutionCount, _ = store.ExecutionCount()
 

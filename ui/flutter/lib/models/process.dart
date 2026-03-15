@@ -4,6 +4,9 @@ class ProcessInfo {
   final String status;
   final String startedAt;
   final int? pid;
+  final String? agentName;
+  final String? goal;
+  final String? runId;
 
   ProcessInfo({
     required this.id,
@@ -11,6 +14,9 @@ class ProcessInfo {
     required this.status,
     required this.startedAt,
     this.pid,
+    this.agentName,
+    this.goal,
+    this.runId,
   });
 
   factory ProcessInfo.fromJson(Map<String, dynamic> json) => ProcessInfo(
@@ -19,18 +25,30 @@ class ProcessInfo {
         status: json['status'] as String? ?? '',
         startedAt: json['startedAt'] as String? ?? '',
         pid: json['pid'] as int?,
+        agentName: json['agentName'] as String?,
+        goal: json['goal'] as String?,
+        runId: json['runId'] as String?,
       );
 }
 
 class LaunchRequest {
   final String command;
   final LaunchConfig config;
+  final String? agentName;
+  final String? goal;
 
-  LaunchRequest({required this.command, required this.config});
+  LaunchRequest({
+    required this.command,
+    required this.config,
+    this.agentName,
+    this.goal,
+  });
 
   Map<String, dynamic> toJson() => {
         'command': command,
         'config': config.toJson(),
+        if (agentName != null) 'agentName': agentName,
+        if (goal != null) 'goal': goal,
       };
 }
 

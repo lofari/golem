@@ -5,7 +5,6 @@ import (
 	"fmt"
 
 	"github.com/lofari/golem/internal/ctx"
-	gitpkg "github.com/lofari/golem/internal/git"
 )
 
 type ValidationResult struct {
@@ -60,23 +59,7 @@ func ValidatePostIteration(dir string, stateBefore, stateAfter ctx.State, log ct
 		}
 	}
 
-	// 2. Locked path violation detection
-	lockedPaths := make([]string, len(stateAfter.Locked))
-	for i, l := range stateAfter.Locked {
-		lockedPaths[i] = l.Path
-	}
-	if len(lockedPaths) > 0 {
-		changedFiles, err := gitpkg.ChangedFiles(dir)
-		if err == nil && len(changedFiles) > 0 {
-			violations := gitpkg.CheckLockedPaths(changedFiles, lockedPaths)
-			for _, v := range violations {
-				result.Warnings = append(result.Warnings,
-					fmt.Sprintf("WARNING — modified %s which is under a locked path", v))
-			}
-		}
-	}
-
-	// 3. Task regression detection
+	// 2. Task regression detection
 	beforeStatuses := make(map[string]string)
 	for _, t := range stateBefore.Tasks {
 		beforeStatuses[t.Name] = t.Status

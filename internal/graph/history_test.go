@@ -23,7 +23,6 @@ func initTestRepo(t *testing.T) string {
 func commitFile(t *testing.T, dir, name, content, msg string) {
 	t.Helper()
 	path := filepath.Join(dir, name)
-	// Ensure parent directory exists
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -73,77 +72,11 @@ func openTestStore(t *testing.T) *Store {
 	return store
 }
 
-func TestHistoryBuildBasic(t *testing.T) {
+func TestComputeCoChanged(t *testing.T) {
 	dir := initTestRepo(t)
 	store := openTestStore(t)
 
-	// Create 3 commits touching different files
-	commitFile(t, dir, "main.go", "package main", "initial commit")
-	commitFile(t, dir, "utils.go", "package main", "add utils")
-	commitFile(t, dir, "config.go", "package main", "add config")
-
-	hb := NewHistoryBuilder(store, 500)
-	if err := hb.Build(dir); err != nil {
-		t.Fatalf("Build failed: %v", err)
-	}
-
-	// Verify commits
-	commitCount, err := store.CommitCount()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if commitCount != 3 {
-		t.Errorf("expected 3 commits, got %d", commitCount)
-	}
-
-	// Verify authors
-	authorCount, err := store.AuthorCount()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if authorCount != 1 {
-		t.Errorf("expected 1 author, got %d", authorCount)
-	}
-
-	// Verify MODIFIES edges exist: each commit should have at least one
-	stats, err := store.Stats()
-	if err != nil {
-		t.Fatal(err)
-	}
-	modifiesCount := stats.EdgeTypes["MODIFIES"]
-	if modifiesCount < 3 {
-		t.Errorf("expected at least 3 MODIFIES edges, got %d", modifiesCount)
-	}
-
-	// Verify AUTHORED_BY edges
-	authoredByCount := stats.EdgeTypes["AUTHORED_BY"]
-	if authoredByCount != 3 {
-		t.Errorf("expected 3 AUTHORED_BY edges, got %d", authoredByCount)
-	}
-
-	// Verify metadata
-	lastSHA, err := store.GetMeta("history_last_sha")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if lastSHA == "" {
-		t.Error("history_last_sha should not be empty")
-	}
-
-	depth, err := store.GetMeta("history_depth")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if depth != "500" {
-		t.Errorf("expected history_depth=500, got %s", depth)
-	}
-}
-
-func TestHistoryBuildCoChanged(t *testing.T) {
-	dir := initTestRepo(t)
-	store := openTestStore(t)
-
-	// Create 3+ commits where files A and B always change together
+	// Create 4 commits where files a.go and b.go always change together
 	for i := 0; i < 4; i++ {
 		commitFiles(t, dir, map[string]string{
 			"a.go": fmt.Sprintf("package main // v%d", i),
@@ -151,9 +84,8 @@ func TestHistoryBuildCoChanged(t *testing.T) {
 		}, fmt.Sprintf("change a and b v%d", i))
 	}
 
-	hb := NewHistoryBuilder(store, 500)
-	if err := hb.Build(dir); err != nil {
-		t.Fatalf("Build failed: %v", err)
+	if err := ComputeCoChanged(store, dir, 500); err != nil {
+		t.Fatalf("ComputeCoChanged failed: %v", err)
 	}
 
 	// Verify CO_CHANGED edge exists
@@ -181,118 +113,53 @@ func TestHistoryBuildCoChanged(t *testing.T) {
 	}
 }
 
-func TestHistoryBuildDepthLimit(t *testing.T) {
+func TestComputeCoChangedBelowThreshold(t *testing.T) {
 	dir := initTestRepo(t)
 	store := openTestStore(t)
 
-	// Create 10 commits
-	for i := 0; i < 10; i++ {
-		commitFile(t, dir, fmt.Sprintf("file%d.go", i),
-			fmt.Sprintf("package main // %d", i),
-			fmt.Sprintf("commit %d", i))
+	// Only 2 commits — below coChangedMinCount of 3
+	for i := 0; i < 2; i++ {
+		commitFiles(t, dir, map[string]string{
+			"x.go": fmt.Sprintf("package main // v%d", i),
+			"y.go": fmt.Sprintf("package main // v%d", i),
+		}, fmt.Sprintf("change x and y v%d", i))
 	}
 
-	// Build with depth=5
-	hb := NewHistoryBuilder(store, 5)
-	if err := hb.Build(dir); err != nil {
-		t.Fatalf("Build failed: %v", err)
+	if err := ComputeCoChanged(store, dir, 500); err != nil {
+		t.Fatalf("ComputeCoChanged failed: %v", err)
 	}
 
-	commitCount, err := store.CommitCount()
+	coChangedCount, err := store.CoChangedCount()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if commitCount != 5 {
-		t.Errorf("expected 5 commits with depth=5, got %d", commitCount)
+	if coChangedCount != 0 {
+		t.Errorf("expected 0 CO_CHANGED edges (below threshold), got %d", coChangedCount)
 	}
 }
 
-func TestHistorySyncIncremental(t *testing.T) {
+func TestComputeCoChangedDepthLimit(t *testing.T) {
 	dir := initTestRepo(t)
 	store := openTestStore(t)
 
-	// Create initial commits with co-changing files
-	for i := 0; i < 3; i++ {
+	// Create 10 commits with a+b together
+	for i := 0; i < 10; i++ {
 		commitFiles(t, dir, map[string]string{
 			"a.go": fmt.Sprintf("package main // v%d", i),
 			"b.go": fmt.Sprintf("package main // v%d", i),
-		}, fmt.Sprintf("change a and b v%d", i))
+		}, fmt.Sprintf("change v%d", i))
 	}
 
-	hb := NewHistoryBuilder(store, 500)
-	if err := hb.Build(dir); err != nil {
-		t.Fatalf("Build failed: %v", err)
+	// With depth=2, only 2 commits, below threshold — no CO_CHANGED
+	if err := ComputeCoChanged(store, dir, 2); err != nil {
+		t.Fatalf("ComputeCoChanged failed: %v", err)
 	}
 
-	commitCountBefore, _ := store.CommitCount()
-	if commitCountBefore != 3 {
-		t.Fatalf("expected 3 commits before sync, got %d", commitCountBefore)
-	}
-
-	// CO_CHANGED should exist: a.go and b.go changed together 3 times
-	coCount, _ := store.CoChangedCount()
-	if coCount != 1 {
-		t.Errorf("expected 1 CO_CHANGED edge before sync, got %d", coCount)
-	}
-
-	// Add 2 more commits
-	commitFile(t, dir, "c.go", "package main", "add c")
-	commitFiles(t, dir, map[string]string{
-		"a.go": "package main // v_new",
-		"b.go": "package main // v_new",
-	}, "change a and b again")
-
-	if err := hb.Sync(dir); err != nil {
-		t.Fatalf("Sync failed: %v", err)
-	}
-
-	commitCountAfter, _ := store.CommitCount()
-	if commitCountAfter != 5 {
-		t.Errorf("expected 5 commits after sync, got %d", commitCountAfter)
-	}
-
-	// CO_CHANGED should be recomputed: a.go+b.go now changed together 4 times
-	results, err := store.QueryCoChanged("a.go", 1)
+	coChangedCount, err := store.CoChangedCount()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(results) != 1 {
-		t.Fatalf("expected 1 co-changed result after sync, got %d", len(results))
-	}
-	if results[0].Count != 4 {
-		t.Errorf("expected co-changed count 4 after sync, got %d", results[0].Count)
-	}
-}
-
-func TestHistorySyncFallback(t *testing.T) {
-	dir := initTestRepo(t)
-	store := openTestStore(t)
-
-	// Create some commits without prior Build
-	commitFile(t, dir, "main.go", "package main", "initial")
-	commitFile(t, dir, "lib.go", "package main", "add lib")
-
-	hb := NewHistoryBuilder(store, 500)
-
-	// Sync with no prior build should fall back to full build
-	if err := hb.Sync(dir); err != nil {
-		t.Fatalf("Sync fallback failed: %v", err)
-	}
-
-	commitCount, err := store.CommitCount()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if commitCount != 2 {
-		t.Errorf("expected 2 commits after sync fallback, got %d", commitCount)
-	}
-
-	// Verify metadata was set
-	lastSHA, err := store.GetMeta("history_last_sha")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if lastSHA == "" {
-		t.Error("history_last_sha should be set after sync fallback")
+	if coChangedCount != 0 {
+		t.Errorf("expected 0 CO_CHANGED edges with depth=2, got %d", coChangedCount)
 	}
 }

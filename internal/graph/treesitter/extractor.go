@@ -289,3 +289,45 @@ func isInsideClass(node *sitter.Node) bool {
 	}
 	return false
 }
+
+// CallSite represents a function call found by tree-sitter.
+type CallSite struct {
+	Name     string // called function name
+	CallerID string // node ID of enclosing function
+	Line     int    // 0-indexed line
+	Col      int    // 0-indexed column
+}
+
+// ExtractCallSites finds call expressions using tree-sitter AST walking.
+func ExtractCallSites(filePath, lang string, tree *sitter.Tree, src []byte) []CallSite {
+	var sites []CallSite
+	walkCallSites(tree.RootNode(), filePath, src, &sites)
+	return sites
+}
+
+func walkCallSites(node *sitter.Node, filePath string, src []byte, sites *[]CallSite) {
+	if node.Type() == "call_expression" {
+		fnNode := node.ChildByFieldName("function")
+		if fnNode != nil {
+			callName := fnNode.Content(src)
+			if callName != "" && !strings.Contains(callName, "(") {
+				caller := findEnclosingFunc(node, filePath, src)
+				if caller != "" {
+					*sites = append(*sites, CallSite{
+						Name:     callName,
+						CallerID: caller,
+						Line:     int(fnNode.StartPoint().Row),
+						Col:      int(fnNode.StartPoint().Column),
+					})
+				}
+			}
+		}
+	}
+
+	for i := 0; i < int(node.ChildCount()); i++ {
+		child := node.Child(i)
+		if child != nil {
+			walkCallSites(child, filePath, src, sites)
+		}
+	}
+}

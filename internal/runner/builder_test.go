@@ -24,6 +24,10 @@ func (m *mockRunner) Run(_ context.Context, _ string, _ string, _ int, _ string)
 	return out, nil
 }
 
+func (m *mockRunner) RunWithTools(_ context.Context, _ string, _ string, _ int, _ string, _ []string) (string, error) {
+	return m.Run(context.Background(), "", "", 0, "")
+}
+
 func setupTestProject(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()

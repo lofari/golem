@@ -1,0 +1,14 @@
+name: bad-contract
+description: "Agent with contract violation"
+initial-state: [goal]
+
+config: {}
+
+steps:
+  - implement:
+      type: agentic
+      reads: [goal, plan]
+      writes: [code]
+
+errors:
+  contract-violation: { action: halt }

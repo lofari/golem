@@ -33,7 +33,15 @@ class ProjectInfoNotifier extends StateNotifier<ProjectInfo?> {
   }
 }
 
-// Project state (tasks, decisions, etc.)
+// Project state per project, keyed by project ID.
+final projectStateFamily =
+    StateNotifierProvider.family<ProjectStateNotifier, ProjectState?, String>(
+        (ref, projectId) {
+  final api = ref.read(apiClientProvider);
+  return ProjectStateNotifier(api, projectId);
+});
+
+// Convenience alias: state for the current single-project.
 final projectStateProvider = StateNotifierProvider<ProjectStateNotifier, ProjectState?>((ref) {
   final projectInfo = ref.watch(projectInfoProvider);
   final api = ref.read(apiClientProvider);
@@ -45,6 +53,7 @@ class ProjectStateNotifier extends StateNotifier<ProjectState?> {
   final String? _projectId;
   GolemWebSocket? _ws;
   void Function(Map<String, dynamic>)? _onLogAppended;
+  void Function(Map<String, dynamic>)? _onEngineEvent;
 
   ProjectStateNotifier(this._api, this._projectId) : super(null) {
     if (_projectId != null) {
@@ -55,6 +64,9 @@ class ProjectStateNotifier extends StateNotifier<ProjectState?> {
 
   set onLogAppended(void Function(Map<String, dynamic>)? cb) =>
       _onLogAppended = cb;
+
+  set onEngineEvent(void Function(Map<String, dynamic>)? cb) =>
+      _onEngineEvent = cb;
 
   Future<void> _fetch() async {
     try {
@@ -71,6 +83,9 @@ class ProjectStateNotifier extends StateNotifier<ProjectState?> {
         }
         if (data['type'] == 'log_appended') {
           _onLogAppended?.call(data);
+        }
+        if (data['type'] == 'engine_event' && data['event'] != null) {
+          _onEngineEvent?.call(data['event'] as Map<String, dynamic>);
         }
       },
     );

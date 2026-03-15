@@ -23,7 +23,6 @@ class ProjectState {
   final ProjectMeta project;
   final ProjectStatus status;
   final List<Decision> decisions;
-  final List<Lock> locked;
   final List<Task> tasks;
   final List<Pitfall> pitfalls;
 
@@ -31,7 +30,6 @@ class ProjectState {
     required this.project,
     required this.status,
     required this.decisions,
-    required this.locked,
     required this.tasks,
     required this.pitfalls,
   });
@@ -41,10 +39,6 @@ class ProjectState {
         status: ProjectStatus.fromJson(json['status'] as Map<String, dynamic>? ?? {}),
         decisions: (json['decisions'] as List<dynamic>?)
                 ?.map((e) => Decision.fromJson(e as Map<String, dynamic>))
-                .toList() ??
-            [],
-        locked: (json['locked'] as List<dynamic>?)
-                ?.map((e) => Lock.fromJson(e as Map<String, dynamic>))
                 .toList() ??
             [],
         tasks: (json['tasks'] as List<dynamic>?)
@@ -108,18 +102,6 @@ class Decision {
         what: json['what'] as String? ?? '',
         why: json['why'] as String? ?? '',
         when: json['when'] as String? ?? '',
-      );
-}
-
-class Lock {
-  final String path;
-  final String note;
-
-  Lock({required this.path, required this.note});
-
-  factory Lock.fromJson(Map<String, dynamic> json) => Lock(
-        path: json['path'] as String? ?? '',
-        note: json['note'] as String? ?? '',
       );
 }
 

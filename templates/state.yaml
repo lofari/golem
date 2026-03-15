@@ -14,9 +14,6 @@ status:
 # Architectural decisions — append only, never delete
 decisions: []
 
-# Completed modules — agent must not modify these paths
-locked: []
-
 # Work items — agent picks from these, updates status
 tasks: []
 

@@ -235,37 +235,6 @@ func (gs *GolemServer) handleAddPitfall(_ context.Context, req mcp.CallToolReque
 	return mcp.NewToolResultText(fmt.Sprintf("pitfall added: %s", what)), nil
 }
 
-func addLockedTool() mcp.Tool {
-	return mcp.Tool{
-		Name:        "add_locked",
-		Description: "Lock a file path so it won't be modified by future iterations.",
-		InputSchema: mcp.ToolInputSchema{
-			Type: "object",
-			Properties: map[string]any{
-				"path": map[string]string{"type": "string", "description": "File or directory path to lock"},
-				"note": map[string]string{"type": "string", "description": "Why this path is locked"},
-			},
-			Required: []string{"path"},
-		},
-	}
-}
-
-func (gs *GolemServer) handleAddLocked(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	args := req.GetArguments()
-	path := getStr(args, "path")
-	note := getStr(args, "note")
-
-	err := gs.withStateLock(func(s golemctx.State) (golemctx.State, error) {
-		s.Locked = append(s.Locked, golemctx.Lock{Path: path, Note: note})
-		return s, nil
-	})
-	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
-	}
-
-	return mcp.NewToolResultText(fmt.Sprintf("locked: %s", path)), nil
-}
-
 func setStatusTool() mcp.Tool {
 	return mcp.Tool{
 		Name:        "set_status",

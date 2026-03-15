@@ -15,6 +15,7 @@ import (
 // CommandRunner abstracts the execution of a Claude CLI session.
 type CommandRunner interface {
 	Run(ctx context.Context, dir string, prompt string, maxTurns int, model string) (string, error)
+	RunWithTools(ctx context.Context, dir string, prompt string, maxTurns int, model string, tools []string) (string, error)
 }
 
 // ClaudeRunner is the production implementation that spawns `claude -p`.
@@ -33,6 +34,15 @@ type ClaudeRunner struct {
 }
 
 func (c *ClaudeRunner) Run(ctx context.Context, dir string, prompt string, maxTurns int, model string) (string, error) {
+	return c.runInternal(ctx, dir, prompt, maxTurns, model, "")
+}
+
+func (c *ClaudeRunner) RunWithTools(ctx context.Context, dir string, prompt string, maxTurns int, model string, tools []string) (string, error) {
+	toolsEnv := strings.Join(tools, ",")
+	return c.runInternal(ctx, dir, prompt, maxTurns, model, toolsEnv)
+}
+
+func (c *ClaudeRunner) runInternal(ctx context.Context, dir string, prompt string, maxTurns int, model string, toolsEnv string) (string, error) {
 	args := []string{"-p", prompt, "--max-turns", fmt.Sprintf("%d", maxTurns), "--dangerously-skip-permissions"}
 	if model != "" {
 		args = append(args, "--model", model)
@@ -50,11 +60,16 @@ func (c *ClaudeRunner) Run(ctx context.Context, dir string, prompt string, maxTu
 		args = append(args, "--mcp-config", c.MCPConfig)
 	}
 
-	cmdName, cmdArgs := c.buildCommand(dir, args)
+	cmdName, cmdArgs := c.buildCommand(dir, args, toolsEnv)
 	cmd := exec.CommandContext(ctx, cmdName, cmdArgs...)
 	cmd.Dir = dir
 	cmd.Stdin = strings.NewReader("") // explicit pipe — prevents warden from detecting a TTY
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+
+	// In non-sandbox mode, set GOLEM_TOOLS env var on the process directly
+	if !c.Sandbox && toolsEnv != "" {
+		cmd.Env = append(os.Environ(), "GOLEM_TOOLS="+toolsEnv)
+	}
 
 	display := c.OutputWriter
 	if display == nil {
@@ -90,21 +105,27 @@ func (c *ClaudeRunner) Run(ctx context.Context, dir string, prompt string, maxTu
 }
 
 // WriteMCPConfig writes a temporary mcp_servers.json for this session.
+// If noLSP is true, the spawned MCP server will not start LSP servers.
 // Returns the path to the config file.
-func WriteMCPConfig(dir string) (string, error) {
+func WriteMCPConfig(dir string, noLSP bool) (string, error) {
 	golemBin, err := os.Executable()
 	if err != nil {
 		return "", fmt.Errorf("finding golem binary: %w", err)
+	}
+
+	args := fmt.Sprintf(`"mcp-serve", "--dir", %q`, dir)
+	if noLSP {
+		args += `, "--no-lsp"`
 	}
 
 	config := fmt.Sprintf(`{
   "mcpServers": {
     "golem": {
       "command": %q,
-      "args": ["mcp-serve", "--dir", %q]
+      "args": [%s]
     }
   }
-}`, golemBin, dir)
+}`, golemBin, args)
 
 	configPath := filepath.Join(dir, ".ctx", "mcp_servers.json")
 	if err := os.WriteFile(configPath, []byte(config), 0644); err != nil {
@@ -113,7 +134,7 @@ func WriteMCPConfig(dir string) (string, error) {
 	return configPath, nil
 }
 
-func (c *ClaudeRunner) buildCommand(dir string, claudeArgs []string) (string, []string) {
+func (c *ClaudeRunner) buildCommand(dir string, claudeArgs []string, toolsEnv ...string) (string, []string) {
 	if !c.Sandbox {
 		return "claude", claudeArgs
 	}
@@ -154,6 +175,10 @@ func (c *ClaudeRunner) buildCommand(dir string, claudeArgs []string) (string, []
 		if golemBin, err := os.Executable(); err == nil {
 			wardenArgs = append(wardenArgs, "--mount", golemBin+":ro")
 		}
+	}
+	// Pass GOLEM_TOOLS env var into the sandbox if tools are specified
+	if len(toolsEnv) > 0 && toolsEnv[0] != "" {
+		wardenArgs = append(wardenArgs, "--env", "GOLEM_TOOLS="+toolsEnv[0])
 	}
 	wardenArgs = append(wardenArgs, "--")
 	// Force line-buffered stdout so stream-json flows through docker without delay

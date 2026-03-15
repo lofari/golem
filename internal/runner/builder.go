@@ -30,6 +30,7 @@ type BuilderConfig struct {
 	ExecutionHistory int    // number of execution sessions to retain (default 5)
 	ContextMap       bool   // enable context map injection
 	ContextMapLimit  int    // max symbols (default 15)
+	LSPEnabled       bool   // enable LSP servers during sessions
 	Runner           CommandRunner
 	Events           chan<- Event
 }
@@ -209,7 +210,7 @@ Loop:
 		// Set up MCP config if enabled
 		if cfg.MCPEnabled {
 			if claudeRunner, ok := cfg.Runner.(*ClaudeRunner); ok {
-				mcpPath, mcpErr := WriteMCPConfig(cfg.Dir)
+				mcpPath, mcpErr := WriteMCPConfig(cfg.Dir, !cfg.LSPEnabled)
 				if mcpErr != nil {
 					fmt.Fprintf(os.Stderr, "golem: warning: could not write MCP config: %v\n", mcpErr)
 				} else {
@@ -486,3 +487,4 @@ func nextSessionNumber(dir string, prefix string) int {
 	matches, _ := filepath.Glob(pattern)
 	return len(matches) + 1
 }
+

@@ -1,0 +1,56 @@
+name: one-shot
+description: "One task, one PR. Implement, validate, ship."
+initial-state: [goal]
+
+config:
+  lint-cmd: null
+  lint-fix-cmd: null
+  test-cmd: null
+  ci-enabled: false
+
+steps:
+  - git-setup:
+      type: builtin
+
+  - implement:
+      type: agentic
+      reads: [goal]
+      optional-reads: [plan, lint-results, test-results, ci-results]
+      writes: [code, test-results]
+
+  - lint:
+      type: builtin
+      reads: [code]
+      writes: [lint-results]
+
+  - run-tests:
+      type: builtin
+      reads: [code]
+      writes: [test-results]
+
+  - when:
+      predicate: ci-enabled
+      steps:
+        - ci-tests:
+            type: builtin
+            reads: [code]
+            writes: [ci-results]
+        - while:
+            predicate: ci-failed
+            max: 2
+            steps:
+              - implement
+              - lint
+              - run-tests
+              - ci-tests
+
+  - create-pr:
+      type: builtin
+      reads: [code, goal]
+      optional-reads: [test-results, ci-results, lint-results]
+      writes: [pr-result]
+
+errors:
+  transient: { action: retry, max: 2 }
+  malformed-output: { action: re-run, max: 2, hint: "Write session-output.json with required keys." }
+  contract-violation: { action: halt }

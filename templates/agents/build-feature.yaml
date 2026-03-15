@@ -1,0 +1,81 @@
+name: build-feature
+description: "Plan, implement with lint/test feedback loops, review, ship."
+initial-state: [goal]
+
+config:
+  lint-cmd: null
+  lint-fix-cmd: null
+  test-cmd: null
+  ci-enabled: false
+
+steps:
+  - git-setup:
+      type: builtin
+
+  - plan:
+      type: agentic
+      reads: [goal]
+      writes: [plan]
+      tools: [semantic_search, find_callers, find_dependencies, find_co_changed]
+
+  - implement:
+      type: agentic
+      reads: [goal, plan]
+      optional-reads: [reflection, review-feedback, lint-results, test-results]
+      writes: [code, test-results]
+      tools: [semantic_search, find_callers, find_dependencies, find_dependents,
+              find_co_changed, find_execution_failures,
+              lsp_definition, lsp_references, lsp_hover, lsp_diagnostics]
+
+  - lint:
+      type: builtin
+      reads: [code]
+      writes: [lint-results]
+
+  - run-tests:
+      type: builtin
+      reads: [code]
+      writes: [test-results]
+
+  - review:
+      type: agentic
+      reads: [code, test-results]
+      optional-reads: [lint-results]
+      writes: [review-feedback]
+      tools: [semantic_search, find_callers, find_dependencies]
+
+  - while:
+      predicate: needs-work
+      max: 3
+      steps:
+        - implement
+        - lint
+        - run-tests
+        - review
+
+  - when:
+      predicate: ci-enabled
+      steps:
+        - ci-tests:
+            type: builtin
+            reads: [code]
+            writes: [ci-results]
+        - while:
+            predicate: ci-failed
+            max: 2
+            steps:
+              - implement
+              - lint
+              - run-tests
+              - ci-tests
+
+  - create-pr:
+      type: builtin
+      reads: [code, goal]
+      optional-reads: [plan, test-results, ci-results, lint-results]
+      writes: [pr-result]
+
+errors:
+  transient: { action: retry, max: 3 }
+  malformed-output: { action: re-run, max: 2, hint: "Write session-output.json with required keys." }
+  contract-violation: { action: halt }

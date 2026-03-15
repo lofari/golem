@@ -12,8 +12,7 @@ All persistent state is in `.ctx/`.
 1. Read all design and implementation docs in `{{DOCS_PATH}}` for project context.
 2. Read `.ctx/state.yaml` for current progress, decisions, and constraints.
 3. Respect ALL entries in `decisions` — do not contradict them without exceptional reason.
-4. Do NOT modify files under paths listed in `locked`.
-5. Review `pitfalls` before making implementation choices.
+4. Review `pitfalls` before making implementation choices.
 
 ## Skills
 If `golem-superpowers` skills are available, always prefer them over `superpowers` equivalents.
@@ -42,9 +41,8 @@ Before exiting, use the golem MCP tools to update state:
 2. Call `set_phase` if the project phase has changed.
 3. Call `add_decision` for any new architectural decisions.
 4. Call `add_pitfall` for any lessons learned.
-5. Call `add_locked` for any completed, tested modules that should not be modified.
-6. Call `set_status` to update current_focus and last_session.
-7. Call `log_session` with task name, outcome (done|partial|blocked|unproductive), summary, files_changed, and a `handoff` note. The handoff should tell the next iteration: what you worked on, where you left off, what to do next, and any gotchas.
+5. Call `set_status` to update current_focus and last_session.
+6. Call `log_session` with task name, outcome (done|partial|blocked|unproductive), summary, files_changed, and a `handoff` note. The handoff should tell the next iteration: what you worked on, where you left off, what to do next, and any gotchas.
 
 If the golem MCP tools are not available, fall back to editing `.ctx/state.yaml` and `.ctx/log.yaml` directly.
 Valid task statuses: `todo`, `in-progress`, `done`, `blocked`.
