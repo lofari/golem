@@ -15,8 +15,10 @@ import (
 
 // LaunchRequest is the body for POST /api/projects/:id/processes.
 type LaunchRequest struct {
-	Command string       `json:"command"` // code, review, qa, plan
-	Config  LaunchConfig `json:"config"`
+	Command   string       `json:"command"` // code, review, qa, plan, setup, run
+	Config    LaunchConfig `json:"config"`
+	AgentName string       `json:"agentName,omitempty"` // for "run" command
+	Goal      string       `json:"goal,omitempty"`      // for "run" command
 }
 
 // LaunchConfig overrides for the launched process.
@@ -142,7 +144,7 @@ func (s *Server) StopAll() {
 }
 
 func (s *Server) launchProcess(proj *project, req LaunchRequest) (*managedProcess, error) {
-	validCommands := map[string]bool{"code": true, "review": true, "qa": true, "plan": true, "setup": true}
+	validCommands := map[string]bool{"code": true, "review": true, "qa": true, "plan": true, "setup": true, "run": true}
 	if !validCommands[req.Command] {
 		return nil, fmt.Errorf("invalid command: %q", req.Command)
 	}
@@ -152,7 +154,20 @@ func (s *Server) launchProcess(proj *project, req LaunchRequest) (*managedProces
 		return nil, fmt.Errorf("finding golem binary: %w", err)
 	}
 
-	args := []string{req.Command}
+	var args []string
+
+	if req.Command == "run" {
+		// golem run <agent-name> --goal "..."
+		if req.AgentName == "" {
+			return nil, fmt.Errorf("agentName is required for run command")
+		}
+		if req.Goal == "" {
+			return nil, fmt.Errorf("goal is required for run command")
+		}
+		args = []string{"run", req.AgentName, "--goal", req.Goal}
+	} else {
+		args = []string{req.Command}
+	}
 
 	// Global flags (all commands)
 	if req.Config.Model != "" {
@@ -162,8 +177,8 @@ func (s *Server) launchProcess(proj *project, req LaunchRequest) (*managedProces
 		args = append(args, "--plugin-dir", req.Config.PluginDir)
 	}
 
-	// Engine flags (code, review, qa only — plan and setup don't accept these)
-	engineCommands := map[string]bool{"code": true, "review": true, "qa": true}
+	// Engine flags (code, review, qa, run — plan and setup don't accept these)
+	engineCommands := map[string]bool{"code": true, "review": true, "qa": true, "run": true}
 	if engineCommands[req.Command] {
 		if req.Config.MaxIterations > 0 {
 			args = append(args, "--max-iterations", fmt.Sprintf("%d", req.Config.MaxIterations))

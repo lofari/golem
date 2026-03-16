@@ -28,16 +28,17 @@ class _ProjectWorkspaceState extends ConsumerState<ProjectWorkspace> {
   Future<void> _launchRun(String agent, String goal) async {
     try {
       final api = ref.read(apiClientProvider);
-      await api.launchProcess(
+      final id = await api.launchProcess(
         widget.projectId,
         LaunchRequest(
-          command: 'run $agent',
+          command: 'run',
           config: LaunchConfig(),
           agentName: agent,
           goal: goal,
         ),
       );
       ref.read(processesProvider.notifier).refresh();
+      ref.read(selectedProcessIdProvider.notifier).state = id;
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
