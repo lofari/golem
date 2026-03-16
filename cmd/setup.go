@@ -65,7 +65,7 @@ func runSetupSession(cmd *cobra.Command, dir string) error {
 		model, _ = cmd.Flags().GetString("model")
 	}
 
-	claudeArgs := []string{"--append-system-prompt", prompt}
+	claudeArgs := []string{"--append-system-prompt", prompt, "Scan this project and configure golem. Follow your setup instructions."}
 	if model != "" {
 		claudeArgs = append(claudeArgs, "--model", model)
 	}
