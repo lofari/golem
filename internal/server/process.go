@@ -153,26 +153,33 @@ func (s *Server) launchProcess(proj *project, req LaunchRequest) (*managedProces
 	}
 
 	args := []string{req.Command}
-	if req.Config.MaxIterations > 0 {
-		args = append(args, "--max-iterations", fmt.Sprintf("%d", req.Config.MaxIterations))
-	}
-	if req.Config.MaxToolCalls > 0 {
-		args = append(args, "--max-tool-calls", fmt.Sprintf("%d", req.Config.MaxToolCalls))
-	}
+
+	// Global flags (all commands)
 	if req.Config.Model != "" {
 		args = append(args, "--model", req.Config.Model)
 	}
-	if req.Config.Task != "" {
-		args = append(args, "--task", req.Config.Task)
-	}
-	if req.Config.Sandbox {
-		args = append(args, "--sandbox")
-	}
-	if req.Config.Parallel > 1 {
-		args = append(args, "--parallel", fmt.Sprintf("%d", req.Config.Parallel))
-	}
 	if req.Config.PluginDir != "" {
 		args = append(args, "--plugin-dir", req.Config.PluginDir)
+	}
+
+	// Engine flags (code, review, qa only — plan and setup don't accept these)
+	engineCommands := map[string]bool{"code": true, "review": true, "qa": true}
+	if engineCommands[req.Command] {
+		if req.Config.MaxIterations > 0 {
+			args = append(args, "--max-iterations", fmt.Sprintf("%d", req.Config.MaxIterations))
+		}
+		if req.Config.MaxToolCalls > 0 {
+			args = append(args, "--max-tool-calls", fmt.Sprintf("%d", req.Config.MaxToolCalls))
+		}
+		if req.Config.Task != "" {
+			args = append(args, "--task", req.Config.Task)
+		}
+		if req.Config.Sandbox {
+			args = append(args, "--sandbox")
+		}
+		if req.Config.Parallel > 1 {
+			args = append(args, "--parallel", fmt.Sprintf("%d", req.Config.Parallel))
+		}
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
