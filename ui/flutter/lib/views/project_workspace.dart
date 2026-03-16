@@ -58,14 +58,22 @@ class _ProjectWorkspaceState extends ConsumerState<ProjectWorkspace> {
             ? projectRuns.first
             : null;
 
-    // Find the process associated with the selected run.
+    // Check if a standalone process was launched via the LaunchDialog.
+    final standaloneProcessId = ref.watch(selectedProcessIdProvider);
+
+    // Find the process associated with the selected run, or use standalone.
     final processes = ref.watch(processesProvider);
-    final processId = selectedRun != null
-        ? processes
-            .where((p) => p.runId == selectedRun.runId)
-            .firstOrNull
-            ?.id
-        : null;
+    final String? processId;
+    if (standaloneProcessId != null) {
+      processId = standaloneProcessId;
+    } else if (selectedRun != null) {
+      processId = processes
+          .where((p) => p.runId == selectedRun.runId)
+          .firstOrNull
+          ?.id;
+    } else {
+      processId = null;
+    }
 
     return Column(
       children: [
@@ -86,19 +94,23 @@ class _ProjectWorkspaceState extends ConsumerState<ProjectWorkspace> {
                   child: RunFeed(
                     runs: projectRuns,
                     selectedRunId: _selectedRunId,
-                    onSelect: (run) =>
-                        setState(() => _selectedRunId = run.runId),
+                    onSelect: (run) {
+                      // Clear standalone process when selecting a run
+                      ref.read(selectedProcessIdProvider.notifier).state = null;
+                      setState(() => _selectedRunId = run.runId);
+                    },
                   ),
                 ),
               ),
               Expanded(
                 flex: 45,
                 child: DetailPanel(
-                  selectedRun: selectedRun,
+                  selectedRun: standaloneProcessId != null ? null : selectedRun,
                   processId: processId,
-                  events: selectedRun != null
+                  events: selectedRun != null && standaloneProcessId == null
                       ? ref.watch(runEventsFamily(selectedRun.runId))
                       : const [],
+                  initialTab: standaloneProcessId != null ? 1 : null,
                 ),
               ),
             ],

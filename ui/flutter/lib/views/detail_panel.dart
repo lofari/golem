@@ -12,6 +12,7 @@ class DetailPanel extends StatefulWidget {
   final Map<String, dynamic>? pipelineState;
   final List<EngineEvent> events;
   final String? processId;
+  final int? initialTab;
 
   const DetailPanel({
     super.key,
@@ -19,6 +20,7 @@ class DetailPanel extends StatefulWidget {
     this.pipelineState,
     this.events = const [],
     this.processId,
+    this.initialTab,
   });
 
   @override
@@ -32,7 +34,19 @@ class _DetailPanelState extends State<DetailPanel>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 3, vsync: this);
+    _tabController = TabController(
+      length: 3,
+      vsync: this,
+      initialIndex: widget.initialTab ?? 0,
+    );
+  }
+
+  @override
+  void didUpdateWidget(DetailPanel oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.initialTab != null && widget.initialTab != oldWidget.initialTab) {
+      _tabController.animateTo(widget.initialTab!);
+    }
   }
 
   @override
