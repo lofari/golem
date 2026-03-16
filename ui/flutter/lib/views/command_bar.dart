@@ -2,8 +2,9 @@ import 'package:flutter/material.dart';
 
 import '../theme.dart';
 import 'agent_picker.dart';
+import 'launch_dialog.dart';
 
-/// Top bar in project workspace: goal input + agent picker + Run button.
+/// Top bar in project workspace: goal input + agent picker + Run button + menu.
 class CommandBar extends StatefulWidget {
   final List<String> agents;
   final void Function(String agent, String goal) onLaunch;
@@ -99,6 +100,21 @@ class _CommandBarState extends State<CommandBar> {
                       horizontal: 16, vertical: 10),
                   minimumSize: Size.zero,
                 ),
+              ),
+              const SizedBox(width: 4),
+              IconButton(
+                icon: const Icon(Icons.more_vert, size: 18),
+                color: GolemTheme.textSecondary,
+                tooltip: 'Advanced launch options',
+                splashRadius: 16,
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                onPressed: () {
+                  showDialog(
+                    context: context,
+                    builder: (_) => const LaunchDialog(),
+                  );
+                },
               ),
             ],
           ),

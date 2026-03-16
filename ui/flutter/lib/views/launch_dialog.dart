@@ -105,7 +105,7 @@ class _LaunchDialogState extends ConsumerState<LaunchDialog> {
             : Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  _dropdown('Command', _command, ['code', 'review', 'qa', 'plan'],
+                  _dropdown('Command', _command, ['code', 'review', 'qa', 'plan', 'setup'],
                       (v) => setState(() => _command = v)),
                   const SizedBox(height: 12),
                   _dropdown('Model', _model, ['', 'sonnet', 'opus', 'haiku'],
