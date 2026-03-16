@@ -65,7 +65,7 @@ func runSetupSession(cmd *cobra.Command, dir string) error {
 		model, _ = cmd.Flags().GetString("model")
 	}
 
-	claudeArgs := []string{"-p", prompt, "--max-turns", "30"}
+	claudeArgs := []string{"--append-system-prompt", prompt}
 	if model != "" {
 		claudeArgs = append(claudeArgs, "--model", model)
 	}
