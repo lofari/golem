@@ -198,7 +198,19 @@ var uiInstallCmd = &cobra.Command{
 		}
 
 		fmt.Fprintf(os.Stderr, "golem ui install: installed to %s\n", symlinkPath)
-		fmt.Fprintf(os.Stderr, "golem ui install: run `golem ui` to launch\n")
+
+		// Initialize project if no .ctx/ exists
+		dir, _ := os.Getwd()
+		if !scaffold.CtxExists(dir) {
+			fmt.Fprintf(os.Stderr, "golem ui install: initializing project...\n")
+			result, err := scaffold.Init(dir, scaffold.InitOptions{})
+			if err != nil {
+				return fmt.Errorf("init: %w", err)
+			}
+			fmt.Fprintf(os.Stderr, "golem ui install: created .ctx/ with %d files\n", len(result.Created))
+		}
+
+		fmt.Fprintf(os.Stderr, "golem ui install: done — run `golem ui` to launch\n")
 		return nil
 	},
 }
