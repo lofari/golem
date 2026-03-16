@@ -241,7 +241,7 @@ func findFlutterSource(explicit string) (string, error) {
 		}
 	}
 
-	return "", fmt.Errorf("Flutter source not found — use --source to specify the ui/flutter directory")
+	return "", fmt.Errorf("flutter source not found — use --source to specify the ui/flutter directory")
 }
 
 // golemBinDir returns the directory containing the golem binary.
