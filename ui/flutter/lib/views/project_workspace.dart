@@ -64,10 +64,11 @@ class _ProjectWorkspaceState extends ConsumerState<ProjectWorkspace> {
       );
       ref.read(processesProvider.notifier).refresh();
       ref.read(selectedProcessIdProvider.notifier).state = id;
+      setState(() => _skipWelcome = true);
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to launch: $e')),
+          SnackBar(content: Text('Failed to launch $command: $e')),
         );
       }
     }

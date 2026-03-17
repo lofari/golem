@@ -65,7 +65,7 @@ class WelcomeView extends StatelessWidget {
 
   List<Widget> get _actions => switch (phase) {
     ProjectPhase.needsSetup => [
-      _primaryButton('Set up project', onSetup),
+      _primaryButton('Setup project', onSetup),
       const SizedBox(height: 8),
       _secondaryButton('Skip', onSkip),
     ],
