@@ -7,14 +7,14 @@ import '../providers/project.dart';
 class RunsNotifier extends StateNotifier<List<RunInfo>> {
   RunsNotifier() : super([]);
 
-  void processEvent(EngineEvent event) {
+  void processEvent(EngineEvent event, {String projectId = ''}) {
     switch (event.type) {
       case 'pipeline-start':
         final run = RunInfo(
           runId: event.runId ?? '',
           agentName: event.agent ?? '',
           goal: event.goal ?? '',
-          projectId: '',
+          projectId: projectId,
           projectName: '',
           status: 'running',
           startedAt: event.timestamp,
@@ -143,7 +143,7 @@ final engineEventWiringFamily = Provider.family<void, String>((ref, projectId) {
 
   projectState.onEngineEvent = (data) {
     final event = EngineEvent.fromJson(data);
-    runsNotifier.processEvent(event);
+    runsNotifier.processEvent(event, projectId: projectId);
     eventsNotifier.addEvent(event);
   };
 
@@ -155,13 +155,14 @@ final engineEventWiringFamily = Provider.family<void, String>((ref, projectId) {
 /// Legacy single-project wiring. Watch this to activate the connection
 /// for the default project (from projectInfoProvider).
 final engineEventWiringProvider = Provider<void>((ref) {
+  final projectInfo = ref.watch(projectInfoProvider);
   final projectState = ref.watch(projectStateProvider.notifier);
   final runsNotifier = ref.read(runsProvider.notifier);
   final eventsNotifier = ref.read(runEventsProvider.notifier);
 
   projectState.onEngineEvent = (data) {
     final event = EngineEvent.fromJson(data);
-    runsNotifier.processEvent(event);
+    runsNotifier.processEvent(event, projectId: projectInfo?.id ?? '');
     eventsNotifier.addEvent(event);
   };
 
