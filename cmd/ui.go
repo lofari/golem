@@ -64,7 +64,7 @@ var uiCmd = &cobra.Command{
 				srv.RegisterProject(dir)
 			} else {
 				// Register with the existing server via API
-				body := strings.NewReader(`{"dir":"` + dir + `"}`)
+				body := strings.NewReader(`{"path":"` + dir + `"}`)
 				http.Post("http://localhost"+addr+"/api/projects", "application/json", body)
 			}
 			fmt.Fprintf(os.Stderr, "golem ui: registered project at %s\n", dir)
