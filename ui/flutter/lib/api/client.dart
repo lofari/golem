@@ -5,16 +5,23 @@ import '../models/process.dart';
 
 class GolemApiClient {
   final String baseUrl;
+  final String? _token;
   final http.Client _http;
 
-  GolemApiClient({this.baseUrl = 'http://localhost:8314'})
-      : _http = http.Client();
+  GolemApiClient({this.baseUrl = 'http://localhost:8314', String? token})
+      : _token = token,
+        _http = http.Client();
+
+  Map<String, String> get _headers => {
+        'Content-Type': 'application/json',
+        if (_token != null) 'Authorization': 'Bearer $_token',
+      };
 
   void dispose() => _http.close();
 
   Future<Map<String, dynamic>> _getJson(String path) async {
     final resp = await _http.get(Uri.parse('$baseUrl$path'),
-        headers: {'Content-Type': 'application/json'});
+        headers: _headers);
     if (resp.statusCode >= 400) {
       final body = jsonDecode(resp.body) as Map<String, dynamic>;
       throw ApiException(body['error'] as String? ?? resp.reasonPhrase ?? 'Unknown error');
@@ -24,7 +31,7 @@ class GolemApiClient {
 
   Future<List<dynamic>> _getJsonList(String path) async {
     final resp = await _http.get(Uri.parse('$baseUrl$path'),
-        headers: {'Content-Type': 'application/json'});
+        headers: _headers);
     if (resp.statusCode >= 400) {
       final body = jsonDecode(resp.body) as Map<String, dynamic>;
       throw ApiException(body['error'] as String? ?? resp.reasonPhrase ?? 'Unknown error');
@@ -35,7 +42,7 @@ class GolemApiClient {
   Future<Map<String, dynamic>> _postJson(String path, Map<String, dynamic> body) async {
     final resp = await _http.post(
       Uri.parse('$baseUrl$path'),
-      headers: {'Content-Type': 'application/json'},
+      headers: _headers,
       body: jsonEncode(body),
     );
     if (resp.statusCode >= 400) {
@@ -48,7 +55,7 @@ class GolemApiClient {
   Future<Map<String, dynamic>> _putJson(String path, Map<String, dynamic> body) async {
     final resp = await _http.put(
       Uri.parse('$baseUrl$path'),
-      headers: {'Content-Type': 'application/json'},
+      headers: _headers,
       body: jsonEncode(body),
     );
     if (resp.statusCode >= 400) {
@@ -60,7 +67,7 @@ class GolemApiClient {
 
   Future<Map<String, dynamic>> _delete(String path) async {
     final resp = await _http.delete(Uri.parse('$baseUrl$path'),
-        headers: {'Content-Type': 'application/json'});
+        headers: _headers);
     if (resp.statusCode >= 400) {
       final body = jsonDecode(resp.body) as Map<String, dynamic>;
       throw ApiException(body['error'] as String? ?? resp.reasonPhrase ?? 'Unknown error');
@@ -143,7 +150,7 @@ class GolemApiClient {
     if (types != null && types.isNotEmpty) body['types'] = types;
     final resp = await _http.post(
       Uri.parse('$baseUrl/api/projects/$projectId/graph/search'),
-      headers: {'Content-Type': 'application/json'},
+      headers: _headers,
       body: jsonEncode(body),
     );
     if (resp.statusCode >= 400) {
@@ -182,11 +189,17 @@ class GolemApiClient {
   }
 
   // WebSocket URLs
-  String processStreamUrl(String projectId, String processId) =>
-      'ws://localhost:8314/api/projects/$projectId/processes/$processId/stream';
+  String processStreamUrl(String projectId, String processId) {
+    final wsBase = baseUrl.replaceFirst('http://', 'ws://').replaceFirst('https://', 'wss://');
+    final tokenParam = _token != null ? '?token=$_token' : '';
+    return '$wsBase/api/projects/$projectId/processes/$processId/stream$tokenParam';
+  }
 
-  String stateWatchUrl(String projectId) =>
-      'ws://localhost:8314/api/projects/$projectId/watch';
+  String stateWatchUrl(String projectId) {
+    final wsBase = baseUrl.replaceFirst('http://', 'ws://').replaceFirst('https://', 'wss://');
+    final tokenParam = _token != null ? '?token=$_token' : '';
+    return '$wsBase/api/projects/$projectId/watch$tokenParam';
+  }
 }
 
 class ApiException implements Exception {
