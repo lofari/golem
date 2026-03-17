@@ -137,6 +137,68 @@ func TestStopAllProcesses(t *testing.T) {
 	}
 }
 
+func TestProcessInfoIncludesAgentNameGoalRunID(t *testing.T) {
+	// Verify ProcessInfo has the new fields and they serialize correctly.
+	info := ProcessInfo{
+		ID:        "test-id",
+		Command:   "run",
+		Status:    "running",
+		StartedAt: time.Now(),
+		AgentName: "build-feature",
+		Goal:      "add login page",
+		RunID:     "test-id",
+	}
+
+	data, err := json.Marshal(info)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var parsed map[string]interface{}
+	if err := json.Unmarshal(data, &parsed); err != nil {
+		t.Fatal(err)
+	}
+
+	if parsed["agentName"] != "build-feature" {
+		t.Fatalf("expected agentName 'build-feature', got %v", parsed["agentName"])
+	}
+	if parsed["goal"] != "add login page" {
+		t.Fatalf("expected goal 'add login page', got %v", parsed["goal"])
+	}
+	if parsed["runId"] != "test-id" {
+		t.Fatalf("expected runId 'test-id', got %v", parsed["runId"])
+	}
+}
+
+func TestProcessInfoOmitsEmptyOptionalFields(t *testing.T) {
+	// Verify omitempty works: fields should not appear when empty.
+	info := ProcessInfo{
+		ID:      "test-id",
+		Command: "code",
+		Status:  "running",
+	}
+
+	data, err := json.Marshal(info)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var parsed map[string]interface{}
+	if err := json.Unmarshal(data, &parsed); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, exists := parsed["agentName"]; exists {
+		t.Fatal("agentName should be omitted when empty")
+	}
+	if _, exists := parsed["goal"]; exists {
+		t.Fatal("goal should be omitted when empty")
+	}
+	if _, exists := parsed["runId"]; exists {
+		t.Fatal("runId should be omitted when empty")
+	}
+}
+
 func TestProcessGC(t *testing.T) {
 	srv := New(Config{ProcessRetention: 1 * time.Millisecond})
 

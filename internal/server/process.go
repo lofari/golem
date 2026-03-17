@@ -40,6 +40,9 @@ type ProcessInfo struct {
 	Status    string    `json:"status"` // running, stopped, failed
 	StartedAt time.Time `json:"startedAt"`
 	PID       int       `json:"pid,omitempty"`
+	AgentName string    `json:"agentName,omitempty"`
+	Goal      string    `json:"goal,omitempty"`
+	RunID     string    `json:"runId,omitempty"`
 }
 
 // managedProcess holds a running golem process.
@@ -222,6 +225,9 @@ func (s *Server) launchProcess(proj *project, req LaunchRequest) (*managedProces
 			Command:   req.Command,
 			Status:    "running",
 			StartedAt: time.Now(),
+			AgentName: req.AgentName,
+			Goal:      req.Goal,
+			RunID:     id,
 		},
 		cmd:    cmd,
 		cancel: cancel,
