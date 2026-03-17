@@ -79,10 +79,10 @@ func TestBuilderBlueprintIntegration(t *testing.T) {
 		t.Fatalf("write log: %v", err)
 	}
 
-	// Load and parse builder blueprint
-	data, err := templates.FS.ReadFile("agents/builder.yaml")
+	// Load and parse implementer blueprint
+	data, err := templates.FS.ReadFile("agents/implementer.yaml")
 	if err != nil {
-		t.Fatalf("reading builder.yaml: %v", err)
+		t.Fatalf("reading implementer.yaml: %v", err)
 	}
 	bp, err := ParseBlueprint(data)
 	if err != nil {
@@ -92,7 +92,7 @@ func TestBuilderBlueprintIntegration(t *testing.T) {
 	mock := &mockBuilderRunner{}
 	e := NewEngine(EngineConfig{
 		Dir:       dir,
-		AgentName: "builder",
+		AgentName: "implementer",
 		Goal:      "complete all tasks",
 		Blueprint: bp,
 		Config:    bp.Config,

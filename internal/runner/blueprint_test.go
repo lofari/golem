@@ -308,19 +308,19 @@ func TestValidateAgentName(t *testing.T) {
 	}
 }
 
-func TestParseBuilderBlueprint(t *testing.T) {
-	data, err := templates.FS.ReadFile("agents/builder.yaml")
+func TestParseImplementerBlueprint(t *testing.T) {
+	data, err := templates.FS.ReadFile("agents/implementer.yaml")
 	if err != nil {
-		t.Fatalf("reading builder.yaml: %v", err)
+		t.Fatalf("reading implementer.yaml: %v", err)
 	}
 	bp, err := ParseBlueprint(data)
 	if err != nil {
-		t.Fatalf("parsing builder.yaml: %v", err)
+		t.Fatalf("parsing implementer.yaml: %v", err)
 	}
 	if err := bp.ValidateContracts(); err != nil {
 		t.Fatalf("contract validation: %v", err)
 	}
-	if bp.Name != "builder" {
-		t.Errorf("name = %q, want builder", bp.Name)
+	if bp.Name != "implementer" {
+		t.Errorf("name = %q, want implementer", bp.Name)
 	}
 }

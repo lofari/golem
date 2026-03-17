@@ -1,0 +1,103 @@
+name: implementer
+description: "Executes tasks from state.yaml with context assembly and strategy evaluation."
+initial-state: [goal]
+
+config:
+  max-iterations: 20
+  lint-cmd: null
+  lint-fix-cmd: null
+  test-cmd: null
+
+steps:
+  - git-setup:
+      type: builtin
+
+  - init-state:
+      type: builtin
+      writes: [project-context, tasks, log-context]
+
+  - while:
+      predicate: tasks-remaining
+      max: 30
+      steps:
+        - pick-task:
+            type: builtin
+            optional-reads: [tasks]
+            writes: [current-task]
+
+        - build-context:
+            type: builtin
+            optional-reads: [current-task, project-context, log-context]
+            writes: [task-context]
+
+        - implement:
+            type: agentic
+            reads: [goal]
+            optional-reads: [task-context, _error_context]
+            writes: [code]
+            prompt: |
+              You are working on a software project autonomously. Each iteration you work on ONE task.
+              You have no memory of previous iterations — all context is provided below.
+
+              # Goal
+              ${goal}
+
+              # Context
+              ${task-context}
+
+              # Execution Discipline
+
+              ## Orient
+              - The context above contains decisions, pitfalls, and recent log entries.
+              - Respect all decisions — do not contradict without exceptional documented reason.
+              - Check pitfalls before making implementation choices.
+
+              ## Focus
+              - Work on exactly ONE task (the one described above).
+              - If a documentation pointer is provided, read that section for detailed implementation steps.
+              - Use graph tools (find_callers, semantic_search, etc.) if you need to trace code beyond the context map.
+
+              ## Execute
+              - Follow TDD: write failing test first, then implement, then verify.
+              - Commit your work with clear commit messages after completing the task.
+
+              ## Update State
+              Use the golem MCP tools to update state:
+              1. Call `mark_task` to update your task (set status to `done` and add notes).
+              2. Call `add_decision` for any new architectural decisions.
+              3. Call `add_pitfall` for any lessons learned.
+              4. Call `set_status` to update current_focus to the next task.
+              5. Call `log_session` with task name, outcome (success/partial/blocked), summary,
+                 files_changed, and a handoff note for the next iteration.
+
+              ## Partial Completion
+              If you cannot finish the task:
+              - Commit all working, tested code.
+              - Keep task status as `in-progress` with notes explaining what remains.
+              - Log with outcome `partial` and specific warnings_for_next.
+
+              ## When Blocked
+              - Set task to `blocked` with a specific `blocked_reason`.
+              - Do NOT guess — stop and document what's missing.
+
+              ## Previous Error Context
+              ${_error_context}
+
+        - run-tests:
+            type: builtin
+            optional-reads: [code]
+            writes: [test-results]
+
+        - sync-state:
+            type: builtin
+            writes: [project-context, tasks, log-context]
+
+        - strategy-eval:
+            type: builtin
+            optional-reads: [tasks, log-context, current-task]
+            writes: [_error_context]
+
+errors:
+  transient: { action: retry, max: 3 }
+  malformed-output: { action: re-run, max: 2, hint: "Your task updates should be made via the golem MCP tools." }
+  contract-violation: { action: halt }
