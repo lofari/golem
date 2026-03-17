@@ -272,7 +272,12 @@ func (s *Server) handleStateWatch(w http.ResponseWriter, r *http.Request) {
 				events, newOffset := tailLogJSON(absPath, offset)
 				logOffsets[absPath] = newOffset
 				for _, ev := range events {
-					msg, _ := json.Marshal(WSMessage{Type: "engine_event", Event: ev})
+					wrapped := map[string]interface{}{
+						"type":      "engine_event",
+						"projectId": proj.id,
+						"event":     ev,
+					}
+					msg, _ := json.Marshal(wrapped)
 					conn.Write(ctx, websocket.MessageText, msg)
 				}
 				continue

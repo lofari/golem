@@ -132,19 +132,27 @@ func TestWebSocketEngineEvents(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to read engine_event: %v", err)
 	}
-	var evtMsg WSMessage
-	if err := json.Unmarshal(msg, &evtMsg); err != nil {
+
+	// Parse as raw map to verify projectId is included
+	var rawMsg map[string]interface{}
+	if err := json.Unmarshal(msg, &rawMsg); err != nil {
 		t.Fatal(err)
 	}
-	if evtMsg.Type != "engine_event" {
-		t.Fatalf("expected 'engine_event', got %q", evtMsg.Type)
+	if rawMsg["type"] != "engine_event" {
+		t.Fatalf("expected 'engine_event', got %v", rawMsg["type"])
 	}
-	if evtMsg.Event == nil {
-		t.Fatal("expected Event to be non-nil")
+	if rawMsg["projectId"] == nil || rawMsg["projectId"] == "" {
+		t.Fatal("expected projectId to be set in engine_event")
+	}
+	if rawMsg["projectId"] != pid {
+		t.Fatalf("expected projectId %q, got %v", pid, rawMsg["projectId"])
+	}
+	if rawMsg["event"] == nil {
+		t.Fatal("expected event to be non-nil")
 	}
 
 	// Verify the event data contains the expected type
-	eventData, err := json.Marshal(evtMsg.Event)
+	eventData, err := json.Marshal(rawMsg["event"])
 	if err != nil {
 		t.Fatal(err)
 	}
