@@ -4,15 +4,19 @@ import '../theme.dart';
 import 'agent_picker.dart';
 import 'launch_dialog.dart';
 
-/// Top bar in project workspace: goal input + agent picker + Run button + menu.
+/// Top bar in project workspace: Plan + Review buttons, goal input + agent picker + Go button + menu.
 class CommandBar extends StatefulWidget {
   final List<String> agents;
   final void Function(String agent, String goal) onLaunch;
+  final VoidCallback? onPlan;
+  final VoidCallback? onReview;
 
   const CommandBar({
     super.key,
     required this.agents,
     required this.onLaunch,
+    this.onPlan,
+    this.onReview,
   });
 
   @override
@@ -27,7 +31,7 @@ class _CommandBarState extends State<CommandBar> {
   void initState() {
     super.initState();
     _selectedAgent =
-        widget.agents.isNotEmpty ? widget.agents.first : 'build-feature';
+        widget.agents.isNotEmpty ? widget.agents.first : 'implementer';
   }
 
   @override
@@ -43,6 +47,20 @@ class _CommandBarState extends State<CommandBar> {
     _goalController.clear();
   }
 
+  Widget _actionButton(String label, IconData icon, VoidCallback? onPressed) {
+    return OutlinedButton.icon(
+      onPressed: onPressed,
+      icon: Icon(icon, size: 14),
+      label: Text(label, style: const TextStyle(fontSize: 12)),
+      style: OutlinedButton.styleFrom(
+        foregroundColor: GolemTheme.textPrimary,
+        side: const BorderSide(color: GolemTheme.border),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        minimumSize: Size.zero,
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Container(
@@ -56,6 +74,18 @@ class _CommandBarState extends State<CommandBar> {
         children: [
           Row(
             children: [
+              _actionButton('Plan', Icons.architecture, widget.onPlan),
+              const SizedBox(width: 6),
+              _actionButton('Review', Icons.rate_review, widget.onReview),
+              const SizedBox(width: 8),
+              const SizedBox(
+                height: 24,
+                child: VerticalDivider(
+                  color: GolemTheme.border,
+                  width: 16,
+                  thickness: 1,
+                ),
+              ),
               Expanded(
                 child: TextField(
                   controller: _goalController,
@@ -92,7 +122,7 @@ class _CommandBarState extends State<CommandBar> {
               ElevatedButton.icon(
                 onPressed: _launch,
                 icon: const Icon(Icons.play_arrow, size: 16),
-                label: const Text('Run', style: TextStyle(fontSize: 12)),
+                label: const Text('Go', style: TextStyle(fontSize: 12)),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: GolemTheme.green,
                   foregroundColor: Colors.white,
