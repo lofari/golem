@@ -8,8 +8,10 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/lofari/golem/internal/config"
+	golemctx "github.com/lofari/golem/internal/ctx"
 	"github.com/lofari/golem/internal/runner"
 	"github.com/lofari/golem/internal/scaffold"
+	"github.com/lofari/golem/templates"
 )
 
 var planCmd = &cobra.Command{
@@ -43,7 +45,15 @@ var planCmd = &cobra.Command{
 			pluginDirs, _ = cmd.Flags().GetStringSlice("plugin-dir")
 		}
 
+		planPrompt, err := templates.FS.ReadFile("prompts/plan-session.md")
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "golem: warning: could not read plan prompt: %v\n", err)
+		}
+
 		claudeArgs := []string{}
+		if len(planPrompt) > 0 {
+			claudeArgs = append(claudeArgs, "--append-system-prompt", string(planPrompt))
+		}
 		if model != "" {
 			claudeArgs = append(claudeArgs, "--model", model)
 		}
@@ -65,7 +75,30 @@ var planCmd = &cobra.Command{
 		claude.Stdout = os.Stdout
 		claude.Stderr = os.Stderr
 
-		return claude.Run()
+		if err := claude.Run(); err != nil {
+			return err
+		}
+
+		// Validate that planning produced tasks
+		state, stateErr := golemctx.ReadState(dir)
+		if stateErr == nil {
+			todoCount := 0
+			for _, t := range state.Tasks {
+				if t.Status == "todo" {
+					todoCount++
+				}
+			}
+			if todoCount == 0 {
+				fmt.Fprintln(os.Stderr, "golem: warning: no tasks with status 'todo' found in state.yaml")
+				fmt.Fprintln(os.Stderr, "golem: the implementer agent needs tasks to work on")
+				fmt.Fprintln(os.Stderr, "golem: run `golem plan` again to create tasks, or add them manually")
+			} else {
+				fmt.Fprintf(os.Stderr, "golem: plan complete — %d tasks ready\n", todoCount)
+				fmt.Fprintln(os.Stderr, "golem: run `golem run implementer --goal '<goal>'` to start building")
+			}
+		}
+
+		return nil
 	},
 }
 
