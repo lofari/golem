@@ -170,7 +170,7 @@ class _ConfigForm extends StatelessWidget {
           ),
           const SizedBox(height: 12),
           DropdownButtonFormField<String>(
-            initialValue: config.model,
+            value: config.model,
             decoration: const InputDecoration(labelText: 'model'),
             dropdownColor: GolemTheme.bgElevated,
             items: const [

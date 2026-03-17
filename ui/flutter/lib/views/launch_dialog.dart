@@ -215,7 +215,7 @@ class _LaunchDialogState extends ConsumerState<LaunchDialog> {
       ValueChanged<String> onChanged,
       {Map<String, String>? labels}) {
     return DropdownButtonFormField<String>(
-      initialValue: value,
+      value: value,
       decoration: InputDecoration(
         labelText: label,
         labelStyle: const TextStyle(fontSize: 12, color: GolemTheme.textSecondary),
